@@ -96,6 +96,10 @@ class Models:
     # deterministic parse, multi-script input, or non-empty alternatives.
     strong: str = "claude-opus-5"
     embedding: str = "amazon.titan-embed-text-v2:0"
+    # Build It fallback: the Ollama tag served locally. Reached over HTTP on
+    # localhost, so it needs no credentials and no network.
+    local_model: str = "llama3.2"
+    local_endpoint: str = "http://127.0.0.1:11434"
     # One retry on invalid JSON with a stricter reminder, then give up and fall
     # back to the deterministic result. Never loop on a model.
     json_retries: int = 1
@@ -112,6 +116,8 @@ class Config:
     bucket_name: str
     opensearch_endpoint: str
     landmark_index: str
+    # Amazon Location Service place index, for the S4 geocoder fallback.
+    place_index: str
     event_bus: str
     # Cache lifetime. Long, because a resolved doorstep does not move.
     cache_ttl_days: int
@@ -144,6 +150,7 @@ def load() -> Config:
         bucket_name=_env("BUCKET_NAME", ""),
         opensearch_endpoint=_env("OPENSEARCH_ENDPOINT", ""),
         landmark_index=_env("LANDMARK_INDEX", "landmarks"),
+        place_index=_env("PLACE_INDEX", "patasetu-places"),
         event_bus=_env("EVENT_BUS", "patasetu"),
         cache_ttl_days=_env_int("CACHE_TTL_DAYS", 90),
         log_level=_env("LOG_LEVEL", "INFO"),
@@ -162,6 +169,8 @@ def load() -> Config:
             cheap=_env("MODEL_CHEAP", "amazon.nova-lite-v1:0"),
             strong=_env("MODEL_STRONG", "claude-opus-5"),
             embedding=_env("MODEL_EMBEDDING", "amazon.titan-embed-text-v2:0"),
+            local_model=_env("LOCAL_MODEL", "llama3.2"),
+            local_endpoint=_env("LOCAL_ENDPOINT", "http://127.0.0.1:11434"),
         ),
     )
 
