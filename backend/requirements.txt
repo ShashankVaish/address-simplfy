@@ -1,0 +1,5 @@
+# Lambda runtime dependencies. Deliberately short: the DIGIPIN encoder, the
+# normaliser, the parser and the gazetteer are all pure standard library, which
+# keeps the layer small and cold starts fast.
+pydantic>=2.9,<3
+boto3>=1.35

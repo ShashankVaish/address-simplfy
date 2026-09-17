@@ -1,0 +1,36 @@
+[project]
+name = "patasetu"
+version = "0.1.0"
+description = "Address resolution engine for India"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["layers/common/python"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["layers/common/python", "functions", "eval", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+# Entrypoints must extend sys.path before importing the shared layer -- in a
+# Lambda the layer mounts at /opt/python, and locally it lives outside the
+# script's own tree. That puts imports after code by necessity, so E402 is
+# declared inoperative here rather than silenced line by line.
+"scripts/*" = ["E402"]
+"eval/*" = ["E402"]
+"functions/*" = ["E402"]
+# Full-width digits appear on purpose: they are the NFKC test fixtures.
+"tests/test_normalize.py" = ["RUF001"]
+# These modules are *made of* the characters ruff calls ambiguous: the
+# Devanagari transliteration tables, and the Unicode dash class the folder
+# normalises away. Flagging them here is the point, not a mistake.
+"layers/common/python/patasetu/normalize.py" = ["RUF001"]
+"eval/corpus_gen.py" = ["RUF001"]

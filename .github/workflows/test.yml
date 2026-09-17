@@ -1,0 +1,53 @@
+name: test
+
+# Keep CI trivial. A broken pipeline on Saturday is a distraction we cannot
+# afford, so this does exactly two things: lint and test.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check . && ruff format --check .
+
+      - name: Fetch the pincode directory
+        # Not committed: 23 MB and reproducible by download. The data-integrity
+        # tests skip themselves if it is absent, so a failure here degrades CI
+        # rather than breaking it.
+        continue-on-error: true
+        run: |
+          curl -sL --max-time 300 -o data/pincode_raw.csv \
+            https://raw.githubusercontent.com/harshvardhaniimi/IndiaPIN/main/data-raw/pincode.csv
+          python -m scripts.build_gazetteer --src data/pincode_raw.csv
+          python -m scripts.build_seeds --n 120
+          python -m eval.corpus_gen --n 2000
+          python -m scripts.make_gold --n 300
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: DIGIPIN reference vector
+        # Called out separately so a failure is unmissable in the CI summary.
+        # A wrong encoder produces a well-formed code for the wrong doorstep and
+        # nothing else in the system will notice.
+        run: python -m pytest tests/test_digipin.py -q
+
+      - name: Baseline ablation (configuration A, dev split)
+        run: python -m eval.run_ablation --split dev --stacks A

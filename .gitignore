@@ -1,0 +1,43 @@
+# Secrets. Never committed -- .env.example documents the shape instead.
+.env
+.env.*
+!.env.example
+env.json
+backend/env.json
+frontend/*/.env.local
+*.pem
+*.key
+*.p12
+
+# Raw, un-anonymised or bulk source data. `backend/data/pincode_raw.csv` is the
+# 23 MB All-India Pincode Directory: reproducible by download, so it is built
+# rather than stored. See README for the fetch command.
+backend/data/*_raw.csv
+backend/data/*_raw.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# SAM / AWS
+.aws-sam/
+samconfig.toml.bak
+packaged.yaml
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

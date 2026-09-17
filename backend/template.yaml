@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+# PataSetu -- all infrastructure. Nothing in this project is console-clicked
+# (NFR-23), so a clean clone plus `sam deploy` reproduces the whole stack.
+#
+# Deploy D1 (Thursday) is intentionally this small: DynamoDB, S3, an HTTP API
+# and the resolver running S0+S1. OpenSearch, Bedrock permissions, EventBridge,
+# Step Functions and the Cedar authorizer arrive in D2 and D3 as additions to
+# this file. Deploying a near-empty stack on day one means every later deploy is
+# a small delta rather than a first attempt -- and IAM surprises surface today,
+# not on Saturday night.
+
+Description: PataSetu - address resolution engine for India
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  ServingStack:
+    Type: String
+    Default: "A"
+    AllowedValues: ["A", "B", "C", "D", "E"]
+    Description: >-
+      Which ablation configuration the API serves. Day 1 ships A (deterministic
+      only). Moves to E once S2 and S3 are wired on Day 2.
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues: [DEBUG, INFO, WARNING, ERROR]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    # Graviton: cheaper per millisecond, and pure-Python code needs no change.
+    Architectures: [arm64]
+    Timeout: 15
+    # 1024 MB is not about memory. Lambda scales CPU with memory, and the
+    # gazetteer load plus Pydantic validation are CPU-bound, so this is the
+    # cheapest way to keep p95 inside the 1.2 s budget.
+    MemorySize: 1024
+    Tracing: Active
+    Environment:
+      Variables:
+        PROVIDER: aws
+        LOG_LEVEL: !Ref LogLevel
+        TABLE_NAME: !Ref Table
+        BUCKET_NAME: !Ref Bucket
+        EVENT_BUS: !Ref EventBus
+        SERVING_STACK: !Ref ServingStack
+        CONF_RESOLVED_AT: "0.80"
+        PRECISION_TARGET: "0.95"
+        RRF_K: "60"
+        GEO_RADIUS_M: "3000"
+        CACHE_TTL_DAYS: "90"
+        # Keeps boto3 from opening a new connection per call.
+        AWS_LAMBDA_EXEC_WRAPPER: ""
+  Api:
+    OpenApiVersion: 3.0.1
+
+Resources:
+  # --- shared code -----------------------------------------------------------
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Metadata:
+      BuildMethod: python3.12
+      BuildArchitecture: arm64
+    Properties:
+      LayerName: !Sub "patasetu-common-${Stage}"
+      Description: >-
+        Pipeline stages, models, and the vendored DIGIPIN encoder, plus the
+        pincode gazetteer data files.
+      ContentUri: layers/common/
+      CompatibleRuntimes: [python3.12]
+      CompatibleArchitectures: [arm64]
+      RetentionPolicy: Delete
+
+  # --- storage ---------------------------------------------------------------
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "patasetu-${Stage}"
+      # On-demand: zero idle cost between demo runs, which is exactly the spend
+      # profile a hackathon needs.
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # GSI-1 drives the review queue: every NEEDS_INFO case, oldest first, in
+        # one query and no scans (FR-27).
+        - IndexName: GSI-1
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "patasetu-${AWS::AccountId}-${AWS::Region}-${Stage}"
+      # Private. Rider audio is reached only through presigned URLs (NFR-18).
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-audio
+            Status: Enabled
+            Prefix: audio/
+            ExpirationInDays: 30
+
+  EventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "patasetu-${Stage}"
+
+  # --- API -------------------------------------------------------------------
+  # HTTP API rather than REST API: lower latency, lower cost, and we need none
+  # of the REST extras.
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowHeaders: [content-type, x-correlation-id]
+        AllowMethods: [GET, POST, OPTIONS]
+      Throttle:
+        # A public, unauthenticated playground needs a ceiling. These are low on
+        # purpose: a runaway loop against a public URL is a billing incident.
+        BurstLimit: 20
+        RateLimit: 10
+
+  ResolverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-resolver-${Stage}"
+      CodeUri: functions/resolver/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        Resolve:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/resolve
+            Method: POST
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /health
+            Method: GET
+
+  ResolverLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/patasetu-resolver-${Stage}"
+      # Short retention: this is a four-day project and log storage is a cost
+      # with no upside here.
+      RetentionInDays: 7
+
+  # --- cost guardrail --------------------------------------------------------
+  # An alert, in the template rather than clicked in the console, so it cannot
+  # be forgotten (NFR-07).
+  BudgetAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "patasetu-estimated-charges-${Stage}"
+      AlarmDescription: Estimated AWS charges have crossed the hackathon budget.
+      Namespace: AWS/Billing
+      MetricName: EstimatedCharges
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Statistic: Maximum
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the HTTP API. Used by smoke.sh and the console.
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "patasetu-api-url-${Stage}"
+  TableName:
+    Value: !Ref Table
+  BucketName:
+    Value: !Ref Bucket
+  EventBusName:
+    Value: !Ref EventBus
