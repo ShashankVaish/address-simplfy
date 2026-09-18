@@ -84,8 +84,6 @@ Globals:
           - UseOpenSearch
           - !GetAtt LandmarkCollection.CollectionEndpoint
           - ""
-  Api:
-    OpenApiVersion: 3.0.1
 
 Resources:
   # --- shared code -----------------------------------------------------------
@@ -265,11 +263,11 @@ Resources:
         AllowOrigins: ["*"]
         AllowHeaders: [content-type, x-correlation-id]
         AllowMethods: [GET, POST, OPTIONS]
-      Throttle:
+      DefaultRouteSettings:
         # A public, unauthenticated playground needs a ceiling. These are low on
         # purpose: a runaway loop against a public URL is a billing incident.
-        BurstLimit: 20
-        RateLimit: 10
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
 
   ResolverFunction:
     Type: AWS::Serverless::Function
