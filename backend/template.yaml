@@ -29,6 +29,26 @@ Parameters:
     Type: String
     Default: INFO
     AllowedValues: [DEBUG, INFO, WARNING, ERROR]
+  EnableOpenSearch:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the OpenSearch Serverless collection. It bills by the hour whether
+      idle or not, so `teardown.sh` flips this to false overnight and a morning
+      deploy flips it back -- the rest of the stack is untouched either way.
+  CheapModelId:
+    Type: String
+    Default: amazon.nova-lite-v1:0
+  StrongModelId:
+    Type: String
+    Default: claude-opus-5
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+
+Conditions:
+  UseOpenSearch: !Equals [!Ref EnableOpenSearch, "true"]
 
 Globals:
   Function:
@@ -54,8 +74,15 @@ Globals:
         RRF_K: "60"
         GEO_RADIUS_M: "3000"
         CACHE_TTL_DAYS: "90"
-        # Keeps boto3 from opening a new connection per call.
-        AWS_LAMBDA_EXEC_WRAPPER: ""
+        LANDMARK_INDEX: landmarks
+        PLACE_INDEX: !Ref PlaceIndex
+        MODEL_CHEAP: !Ref CheapModelId
+        MODEL_STRONG: !Ref StrongModelId
+        MODEL_EMBEDDING: !Ref EmbeddingModelId
+        OPENSEARCH_ENDPOINT: !If
+          - UseOpenSearch
+          - !GetAtt LandmarkCollection.CollectionEndpoint
+          - ""
   Api:
     OpenApiVersion: 3.0.1
 
@@ -141,6 +168,86 @@ Resources:
     Properties:
       Name: !Sub "patasetu-${Stage}"
 
+  # --- landmark graph: OpenSearch Serverless ---------------------------------
+  # Serverless for the hackathon: no cluster sizing, no node management, and it
+  # scales to the volumes we will actually push. The three policies below are
+  # all mandatory -- a collection with no encryption policy fails to create, and
+  # one with no data-access policy accepts no requests -- and the ordering is
+  # enforced with DependsOn because CloudFormation does not infer it.
+  LandmarkEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-enc-${Stage}"
+      Type: encryption
+      Policy: !Sub '{"Rules":[{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"]}],"AWSOwnedKey":true}'
+
+  LandmarkNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-net-${Stage}"
+      Type: network
+      # Public endpoint, IAM-authenticated. A VPC endpoint would add a NAT
+      # gateway to a four-day budget for no security the SigV4 signing does not
+      # already provide.
+      Policy: !Sub '[{"Rules":[{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"]},{"ResourceType":"dashboard","Resource":["collection/patasetu-${Stage}"]}],"AllowFromPublic":true}]'
+
+  LandmarkCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Condition: UseOpenSearch
+    DependsOn: [LandmarkEncryptionPolicy, LandmarkNetworkPolicy]
+    Properties:
+      Name: !Sub "patasetu-${Stage}"
+      Type: VECTORSEARCH
+      Description: Landmark graph - BM25 + kNN + geo_point in one index
+
+  LandmarkDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-data-${Stage}"
+      Type: data
+      Policy: !Sub
+        - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}"]}]'
+        - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+
+  # --- geocoder fallback: Amazon Location Service ----------------------------
+  PlaceIndex:
+    Type: AWS::Location::PlaceIndex
+    Properties:
+      IndexName: !Sub "patasetu-places-${Stage}"
+      DataSource: Esri
+      DataSourceConfiguration:
+        # Results are used once and not stored, which is what SingleUse means
+        # and what keeps the per-request price at the lowest tier.
+        IntendedUse: SingleUse
+      Description: S4 fallback when no landmark matched
+
+  # --- auth: Cognito ---------------------------------------------------------
+  # The playground stays public and read-only so a judge can use it without a
+  # login (FR-26). The review queue and metrics are behind this pool (NFR-16).
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "patasetu-${Stage}"
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+      AdminCreateUserConfig:
+        # Operators are invited, not self-registered.
+        AllowAdminCreateUserOnly: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: console
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+
   # --- API -------------------------------------------------------------------
   # HTTP API rather than REST API: lower latency, lower cost, and we need none
   # of the REST extras.
@@ -171,6 +278,24 @@ Resources:
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
         - CloudWatchPutMetricPolicy: {}
+        - Statement:
+            # Bedrock: the two structuring models and the embedder, and nothing
+            # else. Model ids are parameters, so switching models is a deploy
+            # with no policy edit.
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:Converse]
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${CheapModelId}"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${StrongModelId}"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+                # Cross-region inference profiles, if a model is served that way.
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            - Effect: Allow
+              Action: [aoss:APIAccessAll]
+              Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+            - Effect: Allow
+              Action: [geo:SearchPlaceIndexForText]
+              Resource: !GetAtt PlaceIndex.Arn
       Events:
         Resolve:
           Type: HttpApi
@@ -183,6 +308,39 @@ Resources:
           Properties:
             ApiId: !Ref HttpApi
             Path: /health
+            Method: GET
+
+  QueueApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-queue-${Stage}"
+      CodeUri: functions/queue_api/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+      Events:
+        Queue:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/queue
+            Method: GET
+        Feedback:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/feedback
+            Method: POST
+        Order:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/orders/{order_id}
             Method: GET
 
   ResolverLogGroup:
@@ -225,3 +383,12 @@ Outputs:
     Value: !Ref Bucket
   EventBusName:
     Value: !Ref EventBus
+  OpenSearchEndpoint:
+    Description: Empty when EnableOpenSearch is false.
+    Value: !If [UseOpenSearch, !GetAtt LandmarkCollection.CollectionEndpoint, ""]
+  PlaceIndexName:
+    Value: !Ref PlaceIndex
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient

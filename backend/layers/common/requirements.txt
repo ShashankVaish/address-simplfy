@@ -1,0 +1,6 @@
+# Installed into the layer by `sam build` (BuildMethod python3.12).
+pydantic>=2.9,<3
+boto3>=1.35
+opensearch-py>=2.4
+requests>=2.32
+requests-aws4auth>=1.2

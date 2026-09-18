@@ -84,9 +84,18 @@ class InMemoryStore:
         return rows[:limit]
 
     def query_status(self, status: str, limit: int = 50) -> list[dict[str, Any]]:
-        """GSI-1 equivalent: the review queue, oldest first."""
+        """GSI-1 equivalent: the review queue, oldest first.
+
+        A DynamoDB GSI is sparse: an item is indexed only if it carries *both*
+        key attributes. Audit EVENT rows have a `status` but no `created_at`,
+        so the real index never sees them -- and this emulation must not
+        either, or the local queue shows timeline events as if they were
+        cases.
+        """
         rows = [
-            dict(item) for item in self._items.values() if item.get("status") == status
+            dict(item)
+            for item in self._items.values()
+            if item.get("status") == status and item.get("created_at")
         ]
         rows.sort(key=lambda r: r.get("created_at", ""))
         return rows[:limit]
@@ -199,3 +208,98 @@ def from_dynamo(value: Any) -> Any:
     if isinstance(value, list):
         return [from_dynamo(v) for v in value]
     return value
+
+
+# --- audit trail ---------------------------------------------------------------
+
+
+def record_resolution(
+    kv: Any, *, order_id: str, resolution: dict[str, Any], correlation_id: str
+) -> None:
+    """Write the order row and an audit event for one resolution (NFR-22).
+
+    Two items: `ORDER#<id> / META` carries the current status and is what
+    GSI-1 indexes for the review queue; `ORDER#<id> / EVENT#<ts>` is the
+    append-only timeline. The summary an operator sees is built from the
+    *resolved* fields, never from the raw request body, so a phone number the
+    customer typed cannot reach the queue screen.
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    status = resolution.get("status", "NEEDS_INFO")
+    structured = resolution.get("structured") or {}
+    summary = ", ".join(
+        str(structured[k])
+        for k in ("building", "locality", "city", "pincode")
+        if structured.get(k)
+    )
+    meta = {
+        "order_id": order_id,
+        "status": status,
+        "created_at": now,
+        "updated_at": now,
+        "confidence": resolution.get("confidence"),
+        "summary": summary,
+        "structured": structured,
+        "clarification": resolution.get("clarification"),
+        "alternatives": resolution.get("alternatives") or [],
+        "digipin": resolution.get("digipin"),
+        "geo": resolution.get("geo"),
+        "evidence": resolution.get("evidence") or [],
+        "correlation_id": correlation_id,
+    }
+    existing = kv.get(order_pk(order_id), "META")
+    if existing and existing.get("created_at"):
+        # Keep the original arrival time: the queue is oldest-first by when the
+        # case first needed a human, not by its latest re-resolution.
+        meta["created_at"] = existing["created_at"]
+    kv.put(order_pk(order_id), "META", meta)
+    kv.put(
+        order_pk(order_id),
+        f"EVENT#{now}",
+        {
+            "event": "resolved",
+            "new_status": status,
+            "confidence": resolution.get("confidence"),
+            "correlation_id": correlation_id,
+        },
+    )
+
+
+def record_feedback(
+    kv: Any,
+    *,
+    order_id: str,
+    action: str,
+    actor: str,
+    edits: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Apply an operator decision and append it to the timeline.
+
+    Returns the updated order, or None if the order does not exist.
+    """
+    from datetime import UTC, datetime
+
+    meta = kv.get(order_pk(order_id), "META")
+    if meta is None:
+        return None
+    now = datetime.now(UTC).isoformat()
+    new_status = "RESOLVED" if action in ("approve", "edit") else "REJECTED"
+    meta = {k: v for k, v in meta.items() if k not in ("PK", "SK")}
+    meta.update({"status": new_status, "updated_at": now, "reviewed_by": actor})
+    if edits:
+        meta["structured"] = {**(meta.get("structured") or {}), **edits}
+        meta["edits"] = edits
+    kv.put(order_pk(order_id), "META", meta)
+    kv.put(
+        order_pk(order_id),
+        f"EVENT#{now}",
+        {
+            "event": f"operator_{action}",
+            "actor": actor,
+            "edits": edits or {},
+            "new_status": new_status,
+        },
+    )
+    return meta

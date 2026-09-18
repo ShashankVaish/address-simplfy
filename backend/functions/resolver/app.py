@@ -36,7 +36,7 @@ if os.path.isdir(
 
 from pydantic import ValidationError
 
-from patasetu import gazetteer, metrics
+from patasetu import gazetteer, metrics, store
 from patasetu.cache import ResolutionCache
 from patasetu.confidence import Calibrator
 from patasetu.config import load as load_config
@@ -208,6 +208,18 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     payload = result.model_dump(mode="json")
+
+    # Audit trail and review-queue row (NFR-22, FR-27). The order id is the
+    # caller's if given, else the correlation id, so every resolution is
+    # queryable as a timeline and every NEEDS_INFO / AMBIGUOUS case reaches the
+    # queue. Write failures are swallowed inside the store: a broken audit must
+    # never fail the customer's answer.
+    store.record_resolution(
+        PROVIDERS.store,
+        order_id=request.order_id or correlation_id,
+        resolution=payload,
+        correlation_id=correlation_id,
+    )
 
     # One EMF line per request carries every dashboard metric: no PutMetricData
     # call, no added latency. CloudWatch extracts and publishes them (NFR-10).

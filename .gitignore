@@ -41,3 +41,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Layer data copied in by scripts/prepare_layer.py; backend/data is the source.
+backend/layers/common/python/patasetu/data/

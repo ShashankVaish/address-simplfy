@@ -37,26 +37,17 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from patasetu.config import Config
+from patasetu.config import PROMPT_DIR, Config
 from patasetu.models import Relation
 from patasetu.providers import ProviderUnavailable
 from patasetu.retrieve import Candidate
 
 _PROMPT_CACHE: dict[str, str] = {}
 
-# Where the prompt lives. Resolved relative to this file so a Lambda layer, a
-# test and a script all load the identical text -- a prompt that differs between
-# the evaluation and production makes the evaluation worthless.
-_PROMPT_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "..",
-    "..",
-    "functions",
-    "clarifier",
-    "prompts",
-)
+# The prompt ships inside the package (`patasetu/prompts/`), so a Lambda layer,
+# a test and a script all load the identical text -- a prompt that differs
+# between the evaluation and production makes the evaluation worthless.
+_PROMPT_DIR = PROMPT_DIR
 
 
 class EscalationReason(StrEnum):

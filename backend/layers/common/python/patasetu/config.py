@@ -175,10 +175,32 @@ def load() -> Config:
     )
 
 
-# Repository-relative data paths. Resolved from this file so that scripts, the
-# test suite and a Lambda layer all find the same files.
+# Data file locations. Three places are tried, in order:
+#
+#   1. $DATA_DIR                      explicit override
+#   2. <package>/data                 inside the Lambda layer (/opt/python/
+#                                     patasetu/data), populated by
+#                                     scripts/prepare_layer.py before `sam build`
+#   3. backend/data                   the repository, for scripts and tests
+#
+# Order 2 before 3 matters: in a Lambda the repository path does not exist, and
+# resolving it would point at /data, which fails on the first request rather
+# than at import -- the worst possible time.
 _HERE: Final = os.path.dirname(os.path.abspath(__file__))
-# layers/common/python/patasetu -> backend/
 _BACKEND_ROOT: Final = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-DATA_DIR: Final = os.path.join(_BACKEND_ROOT, "data")
+
+
+def _find_data_dir() -> str:
+    explicit = os.environ.get("DATA_DIR")
+    if explicit:
+        return explicit
+    packaged = os.path.join(_HERE, "data")
+    if os.path.isfile(os.path.join(packaged, "pincodes.csv")):
+        return packaged
+    return os.path.join(_BACKEND_ROOT, "data")
+
+
+DATA_DIR: Final = _find_data_dir()
 EVAL_DATA_DIR: Final = os.path.join(_BACKEND_ROOT, "eval", "data")
+# Prompts ship inside the package so the layer always carries them.
+PROMPT_DIR: Final = os.path.join(_HERE, "prompts")
