@@ -347,11 +347,42 @@ class OpenSearchEngine:
             return 0
 
     def get(self, landmark_id: str) -> LandmarkRecord | None:
+        """Fetch by the `landmark_id` field.
+
+        Not by `_id`: OpenSearch Serverless vector collections assign document
+        ids themselves and reject client-chosen ones, so our stable landmark id
+        lives in a keyword field and every lookup is a term query on it.
+        """
         try:
-            doc = self.client.get(index=self.index, id=landmark_id)
+            hits = self.client.search(
+                index=self.index,
+                body={
+                    "size": 1,
+                    "query": {"term": {"landmark_id": landmark_id}},
+                },
+            )["hits"]["hits"]
         except Exception:
             return None
-        return self._to_record(doc.get("_source") or {})
+        if not hits:
+            return None
+        return self._to_record(hits[0].get("_source") or {})
+
+    def _internal_ids(self, landmark_ids: list[str]) -> list[str]:
+        """OpenSearch-assigned `_id`s for a set of landmark ids, for deletes."""
+        if not landmark_ids:
+            return []
+        try:
+            hits = self.client.search(
+                index=self.index,
+                body={
+                    "size": len(landmark_ids),
+                    "_source": False,
+                    "query": {"terms": {"landmark_id": landmark_ids}},
+                },
+            )["hits"]["hits"]
+        except Exception:
+            return []
+        return [hit["_id"] for hit in hits]
 
     @staticmethod
     def _to_record(source: dict[str, Any]) -> LandmarkRecord:
@@ -373,14 +404,24 @@ class OpenSearchEngine:
         )
 
     def upsert(self, records: list[LandmarkRecord]) -> int:
-        """Bulk upsert. One request for the whole batch, not one per record."""
+        """Bulk upsert. One request for the whole batch, not one per record.
+
+        Serverless vector collections reject a client-supplied `_id` on index
+        operations ("Document ID is not supported in create/index operation
+        request"), so upsert is two steps: delete any existing documents for
+        these landmark ids by their OpenSearch-assigned `_id`, then index fresh
+        documents and let the collection choose ids. `landmark_id` stays a
+        keyword field and remains the key every query uses.
+        """
         if not records:
             return 0
         lines: list[str] = []
-        for record in records:
+        for internal_id in self._internal_ids([r.landmark_id for r in records]):
             lines.append(
-                json.dumps({"index": {"_index": self.index, "_id": record.landmark_id}})
+                json.dumps({"delete": {"_index": self.index, "_id": internal_id}})
             )
+        for record in records:
+            lines.append(json.dumps({"index": {"_index": self.index}}))
             lines.append(
                 json.dumps(
                     {
@@ -403,10 +444,17 @@ class OpenSearchEngine:
         response = self.client.bulk(body=body)
         if response.get("errors"):
             failed = [
-                item["index"]["error"]
+                op["error"]
                 for item in response.get("items", [])
-                if item.get("index", {}).get("error")
+                for op in item.values()
+                if isinstance(op, dict)
+                and op.get("error")
+                # A delete of an id that vanished between search and bulk is
+                # not a failure; the goal was for it to be gone.
+                and not (op.get("status") == 404 and "delete" in item)
             ]
+            if not failed:
+                return len(records)
             raise ProviderUnavailable(
                 f"bulk upsert had {len(failed)} failures: {failed[:3]}"
             )
@@ -545,19 +593,22 @@ class OpenSearchEngine:
             bodies, response.get("responses", []), strict=False
         ):
             hits = (payload_response.get("hits") or {}).get("hits") or []
+            # Hits are keyed by our `landmark_id` field, never by `_id`, which the
+            # collection assigns and we do not control.
             if signal == SIGNAL_GEO:
                 ranked = []
                 for hit in hits:
                     distance = (hit.get("sort") or [radius_m])[0]
                     ranked.append(
                         (
-                            hit["_id"],
+                            hit["_source"]["landmark_id"],
                             1.0 - min(1.0, float(distance) / radius_m),
                         )
                     )
                 results[signal] = ranked
             else:
                 results[signal] = [
-                    (hit["_id"], float(hit.get("_score") or 0.0)) for hit in hits
+                    (hit["_source"]["landmark_id"], float(hit.get("_score") or 0.0))
+                    for hit in hits
                 ]
         return results
