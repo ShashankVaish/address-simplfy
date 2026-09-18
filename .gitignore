@@ -8,7 +8,7 @@ frontend/*/.env.local
 *.pem
 *.key
 *.p12
-
+node_modules
 # Raw, un-anonymised or bulk source data. `backend/data/pincode_raw.csv` is the
 # 23 MB All-India Pincode Directory: reproducible by download, so it is built
 # rather than stored. See README for the fetch command.

@@ -1,8 +1,10 @@
-# How to run the backend on your laptop (easy steps)
+# How to run the backend on your laptop — Windows (easy steps)
 
 No AWS account needed for any of this. Everything runs offline with
-`PROVIDER=local`. Commands are for **PowerShell on Windows**; the Mac/Linux
-version of each is in brackets.
+`PROVIDER=local`. Commands are for **PowerShell on Windows**.
+
+> **On a Mac?** Use [run-backend-mac.md](run-backend-mac.md) instead — same
+> steps, Mac commands.
 
 ---
 
