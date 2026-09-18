@@ -231,6 +231,13 @@ Targets:
 
 ---
 
+## Running it on your laptop
+
+Step-by-step guides, no AWS needed:
+[Windows](docs/run-backend.md) · [Mac](docs/run-backend-mac.md) ·
+[AWS setup for the deploy](docs/aws-setup.md) ·
+[How it works, in plain language](docs/how-it-works.md)
+
 ## Repository layout
 
 See [REPO_STRUCTURE.md](./REPO_STRUCTURE.md).
