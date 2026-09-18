@@ -94,7 +94,12 @@ class Models:
     cheap: str = "amazon.nova-lite-v1:0"
     # Escalation target: low per-field confidence, a conflict with the
     # deterministic parse, multi-script input, or non-empty alternatives.
-    strong: str = "claude-opus-5"
+    # Sonnet 5 rather than Opus 5: the task is choosing a landmark id from a
+    # short list and filling two or three fields, which does not need the top
+    # tier, and it is 2.5x cheaper per call. On a $100 credit the whole event's
+    # escalations cost a few dollars either way -- OpenSearch hours are the
+    # budget risk, not tokens -- but there is no reason to spend the extra.
+    strong: str = "anthropic.claude-sonnet-5"
     embedding: str = "amazon.titan-embed-text-v2:0"
     # Build It fallback: the Ollama tag served locally. Reached over HTTP on
     # localhost, so it needs no credentials and no network.
@@ -167,7 +172,7 @@ def load() -> Config:
         ),
         models=Models(
             cheap=_env("MODEL_CHEAP", "amazon.nova-lite-v1:0"),
-            strong=_env("MODEL_STRONG", "claude-opus-5"),
+            strong=_env("MODEL_STRONG", "anthropic.claude-sonnet-5"),
             embedding=_env("MODEL_EMBEDDING", "amazon.titan-embed-text-v2:0"),
             local_model=_env("LOCAL_MODEL", "llama3.2"),
             local_endpoint=_env("LOCAL_ENDPOINT", "http://127.0.0.1:11434"),

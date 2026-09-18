@@ -42,7 +42,8 @@ Parameters:
     Default: amazon.nova-lite-v1:0
   StrongModelId:
     Type: String
-    Default: claude-opus-5
+    # Sonnet 5: 2.5x cheaper than Opus 5 and sufficient for id selection.
+    Default: anthropic.claude-sonnet-5
   EmbeddingModelId:
     Type: String
     Default: amazon.titan-embed-text-v2:0
@@ -201,6 +202,11 @@ Resources:
       Name: !Sub "patasetu-${Stage}"
       Type: VECTORSEARCH
       Description: Landmark graph - BM25 + kNN + geo_point in one index
+      # The single biggest cost in the stack. Serverless bills a minimum of
+      # OCUs per hour whether idle or not; standby replicas double it. With
+      # them off the floor is ~2 OCU, about $12/day -- still the reason
+      # teardown.sh exists.
+      StandbyReplicas: DISABLED
 
   LandmarkDataAccessPolicy:
     Type: AWS::OpenSearchServerless::AccessPolicy

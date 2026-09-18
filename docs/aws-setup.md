@@ -21,33 +21,54 @@ one.
 
 ---
 
-## Step 2 — Request Bedrock model access (do this NOW, it takes time)
+## Step 2 — Enable Bedrock models (do this NOW, Claude may take a little time)
 
-1. In the search bar type **Bedrock** → open **Amazon Bedrock**.
-2. Left menu → **Model access** → **Modify model access** (or "Manage").
-3. Tick these three:
-   - **Amazon Nova Lite**
-   - **Anthropic Claude** (the latest Claude model available in the list)
-   - **Amazon Titan Text Embeddings V2**
-4. Submit. Amazon models are usually instant; Anthropic may ask a short use-case
-   form and take a few hours.
-5. You are done when the status column says **Access granted** for all three.
+The old "Model access" page is **retired**. Models now switch on automatically
+the first time you call them. The only exception is Claude, which may ask for a
+short use-case form the first time.
 
-> If a model is not offered in Mumbai, tell me — we either use a cross-region
-> inference profile (already allowed in the template) or switch that one model
-> to `us-east-1`.
+1. In the search bar type **Bedrock** → open **Amazon Bedrock**. Confirm the
+   region at the top right says **Asia Pacific (Mumbai)**.
+2. Left menu → **Model catalog**.
+3. Search **Claude** → click the newest Claude model → **Open in playground**.
+4. Type `hello` and send.
+   - If a **use-case form** pops up: company = your team name, use case =
+     "address resolution for delivery logistics (hackathon)", submit, then send
+     `hello` again.
+   - When a reply comes back, Claude is enabled for the whole account.
+5. Do the same once for **Amazon Nova Lite** and **Titan Text Embeddings V2**
+   (embeddings has no chat box — just opening it is enough; it enables on the
+   first API call from the deploy anyway).
 
----
+You are done when the Claude playground answers you.
 
-## Step 3 — Redeem the hackathon credits and set a budget alarm
+> If a model says it is not available in Mumbai, tell me the model name — the
+> deploy template already allows cross-region inference profiles, so it is a
+> one-line parameter change.
 
-1. Search **Billing** → **Credits** → **Redeem credit** → paste the promo code
-   from the event.
-2. Search **Budgets** → **Create budget** → *Cost budget* → amount **$25** →
-   alert at 80% and 100% → put your email → create.
+## Step 3 — Check your credits and set a budget alarm
 
-The deploy template also creates a CloudWatch billing alarm at $25, but AWS
-Budgets is the one that emails you reliably.
+**First look at what you already have:** Search **Billing** → **Credits**. A
+new AWS account comes with **$100 "AWS Free Tier" credit** already active, and
+opening the Bedrock playground adds a **$20 "Explore AWS"** credit. If you see
+those, you have $120 and there is nothing to redeem.
+
+**The "Redeem credit" button is greyed out** on new accounts. That is AWS
+policy: accounts on the **Free Plan** cannot redeem promo codes; only a
+**Paid Plan** can. Do not upgrade just for that unless the event gave you a
+*separate* promo code you actually need. Upgrading is free (it needs a card)
+and your existing credits still apply first — the card is charged only if you
+spend beyond them.
+
+> **Free Plan caveat.** The Free Plan blocks a few services. If tonight's
+> deploy fails with an error saying a service is not available on your plan
+> (OpenSearch Serverless is the likeliest), that is the moment to click
+> **Upgrade to a paid plan**, then re-run the deploy. Credits carry over.
+
+**Then set the alarm** (works on any plan): Search **Budgets** → **Create
+budget** → *Cost budget* → amount **$25** → alerts at 80% and 100% → your
+email → create. The deploy template also creates a CloudWatch billing alarm,
+but AWS Budgets is the one that emails you reliably.
 
 ---
 
@@ -134,7 +155,7 @@ Just this line, from the command above:
 "Arn": "arn:aws:iam::123456789012:user/patasetu-deploy"
 ```
 
-plus a **"Bedrock: granted"** or **"Bedrock: pending"**. That is all I need to
+plus **"Claude playground: works"** (or "asked for a form / pending"). That is all I need to
 confirm the environment is ready. **Do not send the keys themselves.**
 
 If I'm running the deploy from this session on your machine, the CLI reads
@@ -186,6 +207,29 @@ URL, and it goes into the console's `.env.local` as `VITE_API_URL`.
 
 ---
 
+## Budget — how $100 is spent (and how not to spend it)
+
+The AI models are cheap for this project. OpenSearch is not.
+
+| Item | Cost | Notes |
+|---|---|---|
+| Nova Lite on ~5,000 addresses | ~$1 | the cheap model handles ~90% |
+| Claude Sonnet 5 on ~500 escalations | ~$3.50 | the "strong" model; Opus would be ~$9 for no gain |
+| Titan embeddings | < $0.10 | |
+| Lambda, DynamoDB, API Gateway, Cognito, Location | ~$1–2 | all pay-per-request |
+| **OpenSearch Serverless** | **~$12 per day it is running** | bills by the hour, idle or not |
+
+**Expected total: $25–35** if OpenSearch is torn down every night (step 9).
+**Up to $60** if it is left running for the whole event. That is the one
+thing to be disciplined about.
+
+The strong model is already set to Sonnet 5 in the code and the template.
+If Claude access is still pending on deploy night, the system runs on Nova
+Lite alone (`ServingStack=D` uses the cascade; escalations simply fall back to
+the cheap answer and say so in `evidence[]`).
+
+---
+
 ## Step 9 — Every night before sleeping
 
 ```
@@ -218,8 +262,8 @@ Only if you want `git push` to deploy. Skip for tonight.
 ## Quick checklist
 
 - [ ] Region is `ap-south-1`
-- [ ] Bedrock access requested for Nova Lite, Claude, Titan Embeddings V2
-- [ ] Credits redeemed, $25 budget alert set
+- [ ] Claude answered in the Bedrock playground (Nova Lite and Titan enable on first call)
+- [ ] Credits visible under Billing → Credits ($100–120), $25 budget alert set
 - [ ] IAM user `patasetu-deploy` created with an access key
 - [ ] `aws --version` and `sam --version` both work
 - [ ] `aws configure` done, `aws sts get-caller-identity` shows the user
@@ -233,6 +277,6 @@ Only if you want `git push` to deploy. Skip for tonight.
 |---|---|
 | `Unable to locate credentials` | run `aws configure` again |
 | `AccessDenied` during deploy | the user is missing `AdministratorAccess` — re-check step 4.3 |
-| `Model access is not enabled` | Bedrock step 2 not granted yet — deploy with `ServingStack=A` meanwhile |
+| `AccessDeniedException` from Bedrock on Claude | the use-case form (step 2) is not approved yet — deploy with `ServingStack=A` meanwhile; Nova Lite still works |
 | `is not available in ap-south-1` | tell me the model name; we switch to a cross-region profile |
 | Stack stuck in `ROLLBACK_COMPLETE` | delete it in CloudFormation and deploy again (nothing in it is persistent yet) |
