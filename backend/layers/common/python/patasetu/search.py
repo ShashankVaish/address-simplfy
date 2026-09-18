@@ -235,9 +235,7 @@ class InMemorySearchEngine:
         # Proximity as its own ranking: nearest first, scored so that closer is
         # higher, for symmetry with the other two signals.
         geo = sorted(distances.items(), key=lambda pair: pair[1])[:size]
-        geo_ranked = [
-            (doc_id, 1.0 - min(1.0, d / radius_m)) for doc_id, d in geo
-        ]
+        geo_ranked = [(doc_id, 1.0 - min(1.0, d / radius_m)) for doc_id, d in geo]
 
         return {
             SIGNAL_LEXICAL: lexical,
@@ -315,7 +313,11 @@ class OpenSearchEngine:
         if self._client is None:
             try:
                 import boto3
-                from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
+                from opensearchpy import (
+                    AWSV4SignerAuth,
+                    OpenSearch,
+                    RequestsHttpConnection,
+                )
             except ImportError as exc:
                 raise ProviderUnavailable(
                     "opensearch-py and boto3 are required for OpenSearchEngine; "
@@ -405,7 +407,9 @@ class OpenSearchEngine:
                 for item in response.get("items", [])
                 if item.get("index", {}).get("error")
             ]
-            raise ProviderUnavailable(f"bulk upsert had {len(failed)} failures: {failed[:3]}")
+            raise ProviderUnavailable(
+                f"bulk upsert had {len(failed)} failures: {failed[:3]}"
+            )
         return len(records)
 
     def _geo_filter(
@@ -460,7 +464,14 @@ class OpenSearchEngine:
                                         "type": "best_fields",
                                     }
                                 },
-                                {"term": {"canonical_name.kw": {"value": query_text, "boost": 5}}},
+                                {
+                                    "term": {
+                                        "canonical_name.kw": {
+                                            "value": query_text,
+                                            "boost": 5,
+                                        }
+                                    }
+                                },
                             ],
                             "minimum_should_match": 1,
                             "filter": geo_filter,

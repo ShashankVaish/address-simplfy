@@ -8,16 +8,36 @@ numbers of a weaker configuration.
 
 | Config | What it is | Field F1 | Exact match | Geo median | Auto-resolve | Clarify | P@thresh |
 |---|---|---|---|---|---|---|---|
-| **A** | Deterministic regex + gazetteer only | 0.816 | 0.420 | 969 m | 0.0% | 100.0% | 0.000 |
+| **A** | Deterministic regex + gazetteer only | 0.826 | 0.413 | 969 m | 0.0% | 100.0% | 0.000 |
 | **B** | A + single LLM call, no retrieval | -- | -- | -- | -- | -- | -- |
 | **C** | B + BM25 landmark retrieval | -- | -- | -- | -- | -- | -- |
 | **D** | C + vector retrieval + geo filter | -- | -- | -- | -- | -- | -- |
 | **E** | D + warmed landmark graph (full system) | -- | -- | -- | -- | -- | -- |
 
+## Diagnostics: retrieval without a model
+
+Measured with `PROVIDER=local`. In local mode the vector signal is a
+character-trigram hashing embedder, not Titan, so these are a **lower
+bound** on the cloud configuration. They isolate what S2 contributes to
+geocoding, independently of what S3 contributes to field extraction.
+
+| Config | What it is | Field F1 | Exact match | Geo median | Auto-resolve | Clarify | P@thresh |
+|---|---|---|---|---|---|---|---|
+| **R1** | A + BM25 landmark retrieval, no LLM | 0.826 | 0.413 | 0 m | 10.0% | 86.0% | 0.733 |
+| **R2** | A + hybrid retrieval (BM25 + vector + geo), no LLM | 0.826 | 0.413 | 0 m | 5.3% | 90.0% | 0.875 |
+
 ## Notes
 
-**A** — n=150, 5.86 ms/address
+**A** — n=150, 6.44 ms/address
   - no address reached the 0.80 threshold; precision_at_threshold reported as 0.0 rather than vacuously 1.0
-  - fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street, sub_locality
+  - fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street
   - 45 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)
+
+**R1** — n=150, 7.30 ms/address
+  - fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street
+  - 19 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)
+
+**R2** — n=150, 12.30 ms/address
+  - fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street
+  - 17 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)
 

@@ -120,9 +120,7 @@ class HashingEmbedder:
             if len(padded) <= _NGRAM:
                 out.append(padded)
                 continue
-            out.extend(
-                padded[i : i + _NGRAM] for i in range(len(padded) - _NGRAM + 1)
-            )
+            out.extend(padded[i : i + _NGRAM] for i in range(len(padded) - _NGRAM + 1))
         return out
 
     def embed(self, text: str) -> list[float]:
@@ -170,7 +168,9 @@ class TitanEmbedder:
             try:
                 import boto3
             except ImportError as exc:  # pragma: no cover - boto3 ships in Lambda
-                raise ProviderUnavailable("boto3 is required for TitanEmbedder") from exc
+                raise ProviderUnavailable(
+                    "boto3 is required for TitanEmbedder"
+                ) from exc
             self._client = boto3.client("bedrock-runtime", region_name=self.region)
         return self._client
 

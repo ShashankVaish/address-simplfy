@@ -31,7 +31,8 @@ from __future__ import annotations
 import functools
 from typing import Protocol, runtime_checkable
 
-from patasetu.config import Config, load as load_config
+from patasetu.config import Config
+from patasetu.config import load as load_config
 from patasetu.models import LandmarkRecord
 
 
@@ -121,9 +122,13 @@ class KeyValueStore(Protocol):
 
     def get(self, pk: str, sk: str) -> dict | None: ...
 
-    def put(self, pk: str, sk: str, item: dict, *, ttl_days: int | None = None) -> None: ...
+    def put(
+        self, pk: str, sk: str, item: dict, *, ttl_days: int | None = None
+    ) -> None: ...
 
-    def query_prefix(self, pk: str, sk_prefix: str = "", limit: int = 50) -> list[dict]: ...
+    def query_prefix(
+        self, pk: str, sk_prefix: str = "", limit: int = 50
+    ) -> list[dict]: ...
 
 
 class Providers:
@@ -189,7 +194,10 @@ class Providers:
         if self.cfg.is_local:
             from patasetu.structure import OllamaModel
 
-            return OllamaModel(model_id=self.cfg.models.local_model)
+            return OllamaModel(
+                model_id=self.cfg.models.local_model,
+                endpoint=self.cfg.models.local_endpoint,
+            )
 
         from patasetu.structure import BedrockModel
 

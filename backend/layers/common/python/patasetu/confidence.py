@@ -49,7 +49,7 @@ _FIELD_VALUE: dict[str, float] = {
     "state": 0.03,
 }
 
-_GEO_TIER: dict[GeoSource, float] = {
+GEO_TIER: dict[GeoSource, float] = {
     GeoSource.LANDMARK_GRAPH: 1.0,
     GeoSource.GEOCODER: 0.7,
     GeoSource.PINCODE_CENTROID: 0.3,

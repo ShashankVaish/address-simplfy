@@ -4,9 +4,9 @@
   "rows": [
     {
       "n": 150,
-      "field_f1": 0.8158,
-      "weighted_f1": 0.7811,
-      "exact_match": 0.42,
+      "field_f1": 0.8263,
+      "weighted_f1": 0.7965,
+      "exact_match": 0.4133,
       "geo_median_m": 969.3,
       "geo_p90_m": 18449.2,
       "geo_coverage": 0.7,
@@ -15,14 +15,64 @@
       "precision_at_threshold": 0.0,
       "stack": "A",
       "label": "Deterministic regex + gazetteer only",
-      "wall_ms_total": 878.4,
-      "wall_ms_per_address": 5.856,
-      "latency_p50_ms": 0.3911999997399107,
-      "latency_p95_ms": 29.716200001530524,
+      "provider": "local",
+      "index_size": 0,
+      "wall_ms_total": 966.0,
+      "wall_ms_per_address": 6.44,
+      "latency_p50_ms": 0.4824999997481427,
+      "latency_p95_ms": 31.851299999743787,
       "notes": [
         "no address reached the 0.80 threshold; precision_at_threshold reported as 0.0 rather than vacuously 1.0",
-        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street, sub_locality",
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
         "45 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.8263,
+      "weighted_f1": 0.7965,
+      "exact_match": 0.4133,
+      "geo_median_m": 0.0,
+      "geo_p90_m": 2387.6,
+      "geo_coverage": 0.8733,
+      "auto_resolution_rate": 0.1,
+      "clarification_rate": 0.86,
+      "precision_at_threshold": 0.7333,
+      "stack": "R1",
+      "label": "A + BM25 landmark retrieval, no LLM",
+      "provider": "local",
+      "index_size": 263,
+      "wall_ms_total": 1095.0,
+      "wall_ms_per_address": 7.3,
+      "latency_p50_ms": 0.6704499999159452,
+      "latency_p95_ms": 32.49829999981557,
+      "notes": [
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "19 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.8263,
+      "weighted_f1": 0.7965,
+      "exact_match": 0.4133,
+      "geo_median_m": 0.0,
+      "geo_p90_m": 2894.9,
+      "geo_coverage": 0.8867,
+      "auto_resolution_rate": 0.0533,
+      "clarification_rate": 0.9,
+      "precision_at_threshold": 0.875,
+      "stack": "R2",
+      "label": "A + hybrid retrieval (BM25 + vector + geo), no LLM",
+      "provider": "local",
+      "index_size": 263,
+      "wall_ms_total": 1844.8,
+      "wall_ms_per_address": 12.299,
+      "latency_p50_ms": 1.0846000001265566,
+      "latency_p95_ms": 46.49309999990692,
+      "notes": [
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "17 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
       ]
     }
   ]

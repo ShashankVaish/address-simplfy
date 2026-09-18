@@ -36,11 +36,13 @@ if os.path.isdir(
 
 from pydantic import ValidationError
 
-from patasetu import gazetteer
+from patasetu import gazetteer, metrics
+from patasetu.cache import ResolutionCache
 from patasetu.confidence import Calibrator
 from patasetu.config import load as load_config
 from patasetu.models import ResolveRequest
 from patasetu.pipeline import Stack, StageUnavailable, resolve
+from patasetu.providers import Providers
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -51,6 +53,20 @@ _COLD_START = time.perf_counter()
 CONFIG = load_config()
 CALIBRATOR = Calibrator.load()
 _WARMED = gazetteer.warm()
+PROVIDERS = Providers(CONFIG)
+# Level 1 and 2 of the cache. The store is DynamoDB in aws mode and a dict in
+# local mode; the near-duplicate vector index lives in this container either
+# way, because a kNN round trip to find a cache entry would cost more than the
+# pipeline run it saves.
+CACHE = ResolutionCache(
+    PROVIDERS.store,
+    ttl_days=CONFIG.cache_ttl_days,
+    # Near-duplicate lookup needs an embedding of every incoming address. With
+    # the local hashing embedder that is free; with Titan it is a paid Bedrock
+    # call on every request, *before* we know whether the cache will hit -- so
+    # in aws mode the probe is exact-hash only until the hit rate justifies it.
+    embedder=PROVIDERS.embedder if CONFIG.is_local else None,
+)
 _INIT_MS = (time.perf_counter() - _COLD_START) * 1000.0
 
 logger.info(
@@ -123,6 +139,13 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                 "serving_stack": SERVING_STACK.value,
                 "calibration": CALIBRATOR.describe(),
                 "gazetteer": _WARMED,
+                "landmark_index": PROVIDERS.search.count()
+                if SERVING_STACK.uses_retrieval and CONFIG.is_local
+                else None,
+                "cache": {
+                    "lookups": CACHE.stats.lookups,
+                    "hit_rate": round(CACHE.stats.hit_rate, 3),
+                },
                 "init_ms": round(_INIT_MS, 1),
             },
         )
@@ -160,6 +183,8 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             hint=request.hint,
             cfg=CONFIG,
             calibrator=CALIBRATOR,
+            providers=PROVIDERS,
+            cache=CACHE,
             correlation_id=correlation_id,
         )
     except StageUnavailable as exc:
@@ -182,6 +207,17 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         )
 
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    payload = result.model_dump(mode="json")
+
+    # One EMF line per request carries every dashboard metric: no PutMetricData
+    # call, no added latency. CloudWatch extracts and publishes them (NFR-10).
+    logger.info(
+        metrics.emf_record(
+            metrics.request_metrics(payload, elapsed_ms=elapsed_ms),
+            dimensions={"Stack": SERVING_STACK.value, "Provider": CONFIG.provider},
+            properties={"correlation_id": correlation_id},
+        )
+    )
 
     _log(
         correlation_id,
@@ -199,4 +235,4 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         stages={k: round(v, 2) for k, v in result.timings_ms.items()},
     )
 
-    return _respond(200, result.model_dump(mode="json"))
+    return _respond(200, payload)

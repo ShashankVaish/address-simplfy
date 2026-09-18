@@ -33,6 +33,7 @@ from patasetu.retrieve import Candidate
 # the numbers S6 turns into a confidence tier, so they are deliberate estimates
 # rather than round guesses.
 ACCURACY_LANDMARK_M = 60.0
+ACCURACY_INSIDE_EXTRA_M = 120.0
 ACCURACY_GEOCODER_M = 250.0
 # A pincode centroid's accuracy depends on how large the pincode is. Estimated
 # from the spread of its own post offices rather than assumed -- a dense urban
@@ -47,6 +48,8 @@ ACCURACY_CENTROID_MAX_M = 8_000.0
 # itself, not enough to pretend we know which side of the building it is.
 RELATION_OFFSET_M: dict[Relation, float] = {
     Relation.NEAR: 0.0,
+    # INSIDE means the address *is* this place -- a locality or a complex. The
+    # point is not displaced, but the place is an area, so the accuracy widens.
     Relation.INSIDE: 0.0,
     Relation.ABOVE: 0.0,
     Relation.BESIDE: 25.0,
@@ -117,6 +120,10 @@ def from_landmark(
 
     offset = RELATION_OFFSET_M.get(relation, 0.0)
     lat, lng = offset_point(record.lat, record.lng, offset)
+    if relation is Relation.INSIDE:
+        # A locality or complex is an area: the coordinate is its reference
+        # point, and the doorstep is somewhere within it.
+        accuracy += ACCURACY_INSIDE_EXTRA_M
     if offset:
         # The offset direction is unknown, so it is added to the uncertainty
         # rather than presented as a known displacement.
@@ -190,7 +197,9 @@ class LocationServiceGeocoder:
             try:
                 import boto3
             except ImportError as exc:  # pragma: no cover - boto3 ships in Lambda
-                raise ProviderUnavailable("boto3 is required for Location Service") from exc
+                raise ProviderUnavailable(
+                    "boto3 is required for Location Service"
+                ) from exc
             self._client = boto3.client("location", region_name=self.region)
         return self._client
 
@@ -216,7 +225,9 @@ class LocationServiceGeocoder:
         try:
             response = self.client.search_place_index_for_text(**params)
         except Exception as exc:
-            raise ProviderUnavailable(f"Location Service geocode failed: {exc}") from exc
+            raise ProviderUnavailable(
+                f"Location Service geocode failed: {exc}"
+            ) from exc
 
         results = response.get("Results") or []
         if not results:

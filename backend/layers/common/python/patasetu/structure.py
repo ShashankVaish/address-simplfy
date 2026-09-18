@@ -95,7 +95,9 @@ def load_prompt(name: str = "structure.txt") -> str:
             with open(path, encoding="utf-8") as fh:
                 _PROMPT_CACHE[name] = fh.read()
         except OSError as exc:
-            raise ProviderUnavailable(f"prompt {name} not found at {path}: {exc}") from exc
+            raise ProviderUnavailable(
+                f"prompt {name} not found at {path}: {exc}"
+            ) from exc
     return _PROMPT_CACHE[name]
 
 
@@ -116,7 +118,12 @@ class StructureResult:
     retries: int = 0
     # True when the cascade decided no model was needed at all.
     skipped: bool = False
+    # `failed`: the model answered but with unusable output (after a retry).
+    # `unavailable`: the model could not be reached at all. The pipeline treats
+    # these differently -- garbage degrades to the deterministic result, but an
+    # unreachable provider means this configuration cannot honestly run.
     failed: bool = False
+    unavailable: bool = False
     evidence: list[str] = field(default_factory=list)
 
     @property
@@ -254,6 +261,10 @@ def normalise_model_output(
                 f"model said {name}={value!r} but the deterministic parse has "
                 f"{settled!r}; keeping the deterministic value"
             )
+            # Keep the settled value in the result. Skipping this line dropped
+            # the validated pincode from `fields` on every conflict, leaving a
+            # gap where the one value we were sure of should have been.
+            result.fields[name] = settled
             continue
         if settled is not None:
             result.fields[name] = settled
@@ -481,6 +492,7 @@ def structure(
     except ProviderUnavailable as exc:
         return StructureResult(
             failed=True,
+            unavailable=True,
             evidence=[
                 f"S3 unavailable ({exc}); falling back to the deterministic "
                 f"result with confidence capped accordingly"

@@ -1,20 +1,22 @@
 """The resolution pipeline: S0 through S7, with stages switchable.
 
 One function, `resolve`, runs the pipeline at a chosen `Stack`. The stack is
-what makes the ablation table possible -- configurations A to E are the same
-code path with progressively more stages enabled, so the reported gap between
-them is a real measurement of what each stage contributes rather than a
-comparison of different programs.
+what makes the ablation table a measurement rather than a comparison of
+different programs -- configurations A to E are this same code path with
+progressively more stages enabled.
 
     A  deterministic only          S0, S1, centroid geocode, S5-S7
-    B  + a single LLM call         adds S3 with no retrieval
-    C  + BM25 landmark retrieval   adds lexical S2
+    B  + a single LLM call         adds S3, no retrieval
+    C  + BM25 landmark retrieval   adds S2, lexical only
     D  + vector and geo retrieval  full hybrid S2
-    E  + a warmed landmark graph   D against a graph with observations
+    E  + a warmed landmark graph   D against a graph carrying observations
 
-Day 1 implements A end to end. B to E raise `StageUnavailable` until their
-providers are wired on Day 2, which keeps the runner honest: a configuration
-that cannot run must not silently report the numbers of a weaker one.
+Two diagnostic stacks, R1 and R2, run retrieval *without* a model. They are not
+part of the judged five-row table. They exist because they can be measured
+before Bedrock access is granted, and because they isolate what retrieval
+contributes to geocoding from what the model contributes to field extraction.
+Reporting them separately is how the ablation stays honest about which numbers
+came from where.
 """
 
 from __future__ import annotations
@@ -28,43 +30,78 @@ from typing import Any
 
 from patasetu import confidence as conf
 from patasetu import gazetteer
+from patasetu import geocode as geocode_stage
+from patasetu import retrieve as retrieve_stage
+from patasetu.cache import ResolutionCache
 from patasetu.config import Config
 from patasetu.config import load as load_config
+from patasetu.decide import decide as decide_stage
 from patasetu.digipin import DigipinError
 from patasetu.digipin import encode as digipin_encode
 from patasetu.models import (
-    Clarification,
     Geo,
-    GeoSource,
     Landmark,
+    Relation,
     Resolution,
-    Status,
     StructuredAddress,
 )
-from patasetu.normalize import normalise
+from patasetu.normalize import Normalised, normalise
 from patasetu.parse import ParseResult, parse
+from patasetu.providers import Providers, ProviderUnavailable
+from patasetu.structure import structure as structure_stage
 
 
 class Stack(StrEnum):
-    """Ablation configurations. The letters match docs/results/ablation.md."""
+    """Ablation configurations. A-E match docs/results/ablation.md."""
 
     A_DETERMINISTIC = "A"
     B_LLM_ONLY = "B"
     C_BM25 = "C"
     D_HYBRID = "D"
     E_WARM_GRAPH = "E"
+    # Diagnostics: retrieval with no model. Measurable without Bedrock.
+    R1_BM25_NO_LLM = "R1"
+    R2_HYBRID_NO_LLM = "R2"
 
     @property
     def uses_model(self) -> bool:
-        return self is not Stack.A_DETERMINISTIC
+        return self in (
+            Stack.B_LLM_ONLY,
+            Stack.C_BM25,
+            Stack.D_HYBRID,
+            Stack.E_WARM_GRAPH,
+        )
 
     @property
     def uses_retrieval(self) -> bool:
-        return self in (Stack.C_BM25, Stack.D_HYBRID, Stack.E_WARM_GRAPH)
+        return self in (
+            Stack.C_BM25,
+            Stack.D_HYBRID,
+            Stack.E_WARM_GRAPH,
+            Stack.R1_BM25_NO_LLM,
+            Stack.R2_HYBRID_NO_LLM,
+        )
+
+    @property
+    def uses_vector(self) -> bool:
+        """BM25-only for C and R1; the full hybrid for D, E and R2."""
+        return self in (
+            Stack.D_HYBRID,
+            Stack.E_WARM_GRAPH,
+            Stack.R2_HYBRID_NO_LLM,
+        )
+
+    @property
+    def uses_geo_signal(self) -> bool:
+        return self.uses_vector
+
+    @property
+    def is_diagnostic(self) -> bool:
+        return self in (Stack.R1_BM25_NO_LLM, Stack.R2_HYBRID_NO_LLM)
 
 
 class StageUnavailable(RuntimeError):
-    """A stage this configuration needs is not wired up yet."""
+    """A stage this configuration needs is not wired up or not reachable."""
 
 
 @dataclass
@@ -82,40 +119,21 @@ class Stopwatch:
         return stop
 
 
-# Which single missing field would most increase confidence, in priority order.
-# Asking about the building number when the locality is also unknown wastes the
-# one question we are allowed.
-_QUESTION_PRIORITY: tuple[tuple[str, str, str], ...] = (
-    (
-        "building",
-        "Flat ya makaan number kya hai?",
-        "What is the flat or house number?",
-    ),
-    (
-        "locality",
-        "Aapka ilaaka ya colony ka naam kya hai?",
-        "Which locality or colony is this?",
-    ),
-    (
-        "pincode",
-        "Pincode kya hai?",
-        "What is the pincode?",
-    ),
-    (
-        "landmark",
-        "Koi nishani bataiye - school, bank, ya bada mandir?",
-        "Any nearby landmark - a school, bank, or temple?",
-    ),
+_SCALAR_FIELDS = (
+    "building",
+    "street",
+    "sub_locality",
+    "locality",
+    "city",
+    "district",
+    "state",
+    "pincode",
 )
 
 
 def _structured_from_parse(p: ParseResult) -> StructuredAddress:
-    """Project S1's output into the wire contract.
-
-    Absent fields stay `None`. Nothing here invents a value (FR-02).
-    """
+    """Project S1's output into the wire contract. Invents nothing (FR-02)."""
     building = p.building
-    # Floor, block and tower qualify the building rather than standing alone.
     extras = [
         x
         for x in (
@@ -146,104 +164,127 @@ def _structured_from_parse(p: ParseResult) -> StructuredAddress:
     )
 
 
-def _geocode_deterministic(p: ParseResult) -> Geo | None:
-    """Configuration A's only geocoder: the pincode centroid.
-
-    Marked `pincode_centroid` and given an honest accuracy radius, so nothing
-    downstream can present it as a doorstep (NFR-15). The radius is derived
-    from the pincode's own office spread where we have it, rather than a
-    flat guess -- a dense urban pincode is genuinely tighter than a rural one.
-    """
-    if p.centroid is None:
-        return None
-    lat, lng = p.centroid
-    info = gazetteer.lookup(p.pincode) if p.pincode else None
-    # More offices in a pincode means a larger area, roughly.
-    accuracy = 1_500.0 if (info and info.office_count <= 4) else 3_000.0
-    return Geo(
-        lat=lat,
-        lng=lng,
-        source=GeoSource.PINCODE_CENTROID,
-        accuracy_m=accuracy,
-    )
-
-
 def _build_features(
-    p: ParseResult, geo: Geo | None, structured: StructuredAddress
+    *,
+    parsed: ParseResult,
+    geo: Geo | None,
+    structured: StructuredAddress,
+    retrieval: retrieve_stage.RetrievalResult | None,
+    model_self_confidence: float | None,
+    cfg: Config,
 ) -> conf.Features:
+    """Assemble the seven S6 features from whatever the stages produced."""
     f = conf.Features()
     f.field_completeness = conf.field_completeness(structured.filled_fields())
 
-    if p.locality_agrees is True:
+    if parsed.locality_agrees is True:
         f.pincode_locality_agreement = 1.0
-    elif p.locality_agrees is False:
+    elif parsed.locality_agrees is False:
         f.pincode_locality_agreement = 0.35
     else:
         f.pincode_locality_agreement = 0.5
 
     if geo is not None:
-        f.geo_source_tier = conf._GEO_TIER[geo.source]
+        f.geo_source_tier = conf.GEO_TIER[geo.source]
 
-    # No retrieval in configuration A, so there is no landmark match to score
-    # and no candidate set to separate. Left at zero rather than filled with a
-    # neutral value: pretending a missing signal is an average one is how a
-    # deterministic-only baseline ends up looking better than it is.
-    f.landmark_match = 0.0
-    f.landmark_observations = 0.0
-    f.candidate_separation = 1.0
-    f.model_self_confidence = 0.5
+    if retrieval is not None and retrieval.candidates:
+        best = retrieval.candidates[0]
+        f.landmark_match = retrieval.top_score
+        f.landmark_observations = conf.observation_weight(best.record.observation_count)
+        scores = [c.rrf_score for c in retrieval.candidates]
+        distances = [
+            gazetteer.haversine_m(
+                best.record.lat, best.record.lng, c.record.lat, c.record.lng
+            )
+            for c in retrieval.candidates
+        ]
+        f.candidate_separation = conf.candidate_separation(scores, distances, cfg)
+    else:
+        # No retrieval ran, or it found nothing. Left at zero rather than filled
+        # with a neutral 0.5: treating a *missing* signal as an average one is
+        # how a weaker configuration ends up looking better than it is.
+        f.landmark_match = 0.0
+        f.landmark_observations = 0.0
+        f.candidate_separation = 1.0
 
-    if p.state_conflict:
-        # A pincode that contradicts the stated state is unresolvable from the
-        # text alone. Multiplicative so no amount of completeness outvotes it.
+    f.model_self_confidence = (
+        0.5 if model_self_confidence is None else model_self_confidence
+    )
+
+    if parsed.state_conflict:
         f.penalties.append(("pincode_state_conflict", 0.45))
-    if p.pincode is None and p.pincode_candidates:
+    if parsed.pincode is None and parsed.pincode_candidates:
         f.penalties.append(("unknown_pincode_token", 0.85))
-    if not p.pincode_known:
+    if not parsed.pincode_known:
         f.penalties.append(("no_validated_pincode", 0.75))
+    if retrieval is not None and retrieval.degraded:
+        # Running degraded is not free: if the vector signal was unavailable we
+        # genuinely know less, and the confidence has to say so.
+        f.penalties.append(("retrieval_degraded", 0.92))
 
     return f
 
 
-def _choose_question(
-    structured: StructuredAddress, p: ParseResult, devanagari: bool
-) -> Clarification:
-    """Pick the one field whose absence costs the most, and ask about it.
+def _apply_fields(
+    structured: StructuredAddress,
+    fields: dict[str, str | None],
+    landmarks: list[dict[str, Any]],
+) -> StructuredAddress:
+    """Merge S3's (or the matcher's) output over S1's.
 
-    One question, not a form (FR-16). Language mirrors the incoming script
-    (FR-17).
+    `structure.normalise_model_output` has already refused to overwrite
+    deterministic values, so anything arriving here for a settled field is the
+    deterministic value itself.
     """
-    for name, hindi, english in _QUESTION_PRIORITY:
-        missing = (
-            not structured.landmarks
-            if name == "landmark"
-            else getattr(structured, name, None) is None
-        )
-        if missing:
-            return Clarification(
-                field=name,
-                question=hindi if devanagari else english,
-                language="hi-IN" if devanagari else "en-IN",
+    updates: dict[str, Any] = {
+        name: value
+        for name, value in fields.items()
+        if value is not None and name in _SCALAR_FIELDS
+    }
+    if landmarks:
+        updates["landmarks"] = [
+            Landmark(
+                name=item["name"],
+                relation=Relation(item.get("relation", "near")),
+                matched_id=item.get("matched_id"),
+                match_score=item.get("match_score"),
+                distance_m=item.get("distance_m"),
             )
+            for item in landmarks
+        ]
+    return structured.model_copy(update=updates)
 
-    # Nothing is missing, yet confidence is still below the threshold. The cause
-    # is not an absent field -- it is an unverified location: landmarks that
-    # matched nothing in the graph, or a coordinate that is only a pincode
-    # centroid. Asking for the house number here would be absurd, since we
-    # already have it, and it is exactly the kind of question that teaches
-    # customers to ignore us. So we ask for a location confirmation instead,
-    # which for this case is a map pin and a single tap rather than typing.
-    return Clarification(
-        field="geo_confirm",
-        question=(
-            "Address mil gaya, lekin exact location confirm karni hai. "
-            "Map par apna ghar tap kar dijiye."
-            if devanagari
-            else "We have your address but not the exact spot. "
-            "Please tap your building on the map."
-        ),
-        language="hi-IN" if devanagari else "en-IN",
-    )
+
+def _peek_pincode(norm: Normalised) -> str | None:
+    """Cheap pincode sniff for the cache's near-duplicate bucket.
+
+    Deliberately not the full S1 parse: the cache probe has to be cheaper than
+    the work it avoids, and the bucket key only needs to be consistent.
+    """
+    chosen, _ = gazetteer.resolve_pincode(norm.text)
+    return chosen
+
+
+def _matched_candidates(
+    structured: StructuredAddress,
+    retrieval: retrieve_stage.RetrievalResult | None,
+) -> list[retrieve_stage.Candidate]:
+    """The candidates actually claimed by a landmark in the final answer.
+
+    S4 must geocode from a landmark the *answer* asserts, not merely one that
+    retrieval surfaced. A candidate that ranked well but which neither the model
+    nor the matcher attached to any phrase is not evidence about this address.
+    Order follows the answer's landmark order, so the first landmark named is
+    the one geocoded from.
+    """
+    if retrieval is None:
+        return []
+    by_id = {c.landmark_id: c for c in retrieval.candidates}
+    out: list[retrieve_stage.Candidate] = []
+    for lm in structured.landmarks:
+        if lm.matched_id and lm.matched_id in by_id:
+            out.append(by_id[lm.matched_id])
+    return out
 
 
 def resolve(
@@ -253,14 +294,16 @@ def resolve(
     hint: dict[str, float] | None = None,
     cfg: Config | None = None,
     calibrator: conf.Calibrator | None = None,
+    providers: Providers | None = None,
+    cache: ResolutionCache | None = None,
     correlation_id: str | None = None,
 ) -> Resolution:
     """Run the pipeline and return a `Resolution`.
 
-    Pure and side-effect free: no DynamoDB, no EventBridge, no logging
-    handlers. The Lambda handler wraps it with those. That separation is why
-    the entire pipeline can be exercised by `scripts/resolve_one.py` and by the
-    test suite with no cloud at all.
+    Side-effect free apart from the cache: no EventBridge, no logging handlers,
+    no metric publication. The Lambda handler adds those. That separation is
+    what lets the whole pipeline be exercised by a CLI, by the test suite and by
+    the ablation runner with no cloud at all.
     """
     cfg = cfg or load_config()
     calibrator = calibrator or conf.Calibrator.load()
@@ -269,7 +312,7 @@ def resolve(
     watch = Stopwatch(timings={})
     evidence: list[str] = []
 
-    # --- S0 normalise -----------------------------------------------------
+    # --- S0 normalise ------------------------------------------------------
     stop = watch.time("s0_normalise")
     norm = normalise(raw)
     stop()
@@ -279,6 +322,26 @@ def resolve(
             "transliteration is not applied and coverage is unmeasured"
         )
 
+    # --- S0b cache probe ---------------------------------------------------
+    if cache is not None:
+        stop = watch.time("s0_cache")
+        hit = cache.lookup(
+            cache_key=norm.cache_key,
+            text=norm.text,
+            pincode=_peek_pincode(norm),
+        )
+        stop()
+        if hit is not None:
+            cached = Resolution.model_validate(hit.resolution)
+            return cached.model_copy(
+                update={
+                    "cached": True,
+                    "correlation_id": correlation_id,
+                    "timings_ms": watch.timings,
+                    "evidence": [*hit.evidence, *cached.evidence],
+                }
+            )
+
     # --- S1 deterministic parse -------------------------------------------
     stop = watch.time("s1_parse")
     parsed = parse(norm.text)
@@ -287,34 +350,162 @@ def resolve(
 
     structured = _structured_from_parse(parsed)
 
-    # --- S2/S3 retrieval and structuring ----------------------------------
+    centre = parsed.centroid
+    # The geo radius depends on what the centre *is*. A pincode centroid is the
+    # middle of an area that can be tens of kilometres across in rural India --
+    # 29% of the gold set sits more than 3 km from its own pincode centroid,
+    # and a fixed 3 km filter was excluding the correct landmark for all of
+    # them. So the radius scales with the pincode's estimated size. A GPS hint
+    # is a rider near the doorstep and keeps the tight default.
+    radius_m = cfg.retrieval.geo_radius_m
+    if centre is not None and parsed.pincode:
+        radius_m = max(
+            radius_m, 2.5 * geocode_stage.centroid_accuracy_m(parsed.pincode)
+        )
+    if hint is not None:
+        # A GPS hint is a better retrieval centre than a pincode centroid: the
+        # rider is standing near the doorstep, the centroid is the middle of an
+        # area. It constrains retrieval only and is never the answer (FR-07).
+        centre = (hint["lat"], hint["lng"])
+        radius_m = cfg.retrieval.geo_radius_m
+        evidence.append(
+            "GPS hint used to constrain candidate retrieval; it is not used as "
+            "the resolved coordinate"
+        )
+
+    providers = providers or Providers(cfg)
+
+    # The locality is searched for too, as the *anchor*. "X Post Office, near
+    # Y" is a doorstep AT X, NEAR Y -- and if X is in the graph its coordinate
+    # is the answer, not Y's. Without this, every address was geocoded from
+    # whatever it was "near", which is by definition somewhere else.
+    anchor_phrases: list[tuple[str, Relation]] = (
+        [(structured.locality, Relation.INSIDE)] if structured.locality else []
+    )
+
+    # --- S2 retrieval ------------------------------------------------------
+    retrieval: retrieve_stage.RetrievalResult | None = None
     if stack.uses_retrieval:
-        raise StageUnavailable(
-            f"configuration {stack.value} needs S2 retrieval (OpenSearch), "
-            f"which is wired on Day 2"
-        )
+        stop = watch.time("s2_retrieve")
+        try:
+            retrieval = retrieve_stage.retrieve(
+                landmark_names=[
+                    *(name for name, _ in parsed.landmarks),
+                    *(name for name, _ in anchor_phrases),
+                ],
+                retrieval_text=norm.retrieval_text,
+                centre=centre,
+                cfg=cfg,
+                providers=providers,
+                use_vector=stack.uses_vector,
+                use_geo=stack.uses_geo_signal,
+                radius_m=radius_m,
+            )
+        except ProviderUnavailable as exc:
+            stop()
+            raise StageUnavailable(
+                f"configuration {stack.value} needs S2 retrieval: {exc}"
+            ) from exc
+        stop()
+        evidence.extend(retrieval.evidence)
+
+    # --- S3 structuring ----------------------------------------------------
+    model_result = None
     if stack.uses_model:
-        raise StageUnavailable(
-            f"configuration {stack.value} needs S3 structuring (Bedrock), "
-            f"which is wired on Day 2"
+        stop = watch.time("s3_structure")
+        try:
+            cheap = providers.cheap_model
+            strong = providers.strong_model
+        except ProviderUnavailable as exc:
+            stop()
+            raise StageUnavailable(
+                f"configuration {stack.value} needs S3 structuring: {exc}"
+            ) from exc
+
+        model_result = structure_stage(
+            raw_text=parsed.clean_text,
+            deterministic={name: getattr(structured, name) for name in _SCALAR_FIELDS},
+            # The prompt budget: more than a handful of candidates measurably
+            # hurts selection accuracy and wastes tokens. The full list stays
+            # available to the matcher and to S4.
+            candidates=(
+                retrieval.candidates[: cfg.retrieval.candidates_to_model]
+                if retrieval
+                else []
+            ),
+            cfg=cfg,
+            cheap_model=cheap,
+            strong_model=strong,
+            multi_script=norm.is_multi_script,
         )
+        stop()
+        evidence.extend(model_result.evidence)
+
+        if model_result.unavailable:
+            raise StageUnavailable(
+                f"configuration {stack.value} needs S3 structuring: "
+                f"{'; '.join(model_result.evidence)}"
+            )
+        if model_result.failed:
+            # The model was reachable but returned garbage twice. Degrade rather
+            # than 500: the deterministic result is still useful, and the
+            # confidence penalty below reflects what was lost.
+            evidence.append(
+                "proceeding with the deterministic result only; confidence is "
+                "penalised because S3 did not contribute"
+            )
+        else:
+            structured = _apply_fields(
+                structured, model_result.fields, model_result.landmarks
+            )
+            for conflict in model_result.conflicts:
+                evidence.append(f"conflict: {conflict}")
+
+    # Retrieval ran without a model (diagnostic stacks): attach matches from
+    # the retrieval result directly, so landmark ids still reach the response.
+    if retrieval is not None and not stack.uses_model and parsed.landmarks:
+        matches = retrieve_stage.attach_matches(
+            parsed.landmarks, retrieval, providers.embedder
+        )
+        structured = _apply_fields(structured, {}, matches)
+
+    # The anchor match is internal: it decides where S4 geocodes from, but it
+    # is not reported as a "landmark" -- the customer did not name it as one.
+    anchor: list[retrieve_stage.Candidate] = []
+    if retrieval is not None and anchor_phrases:
+        anchor_matches = retrieve_stage.attach_matches(
+            anchor_phrases, retrieval, providers.embedder
+        )
+        by_id = {c.landmark_id: c for c in retrieval.candidates}
+        anchor = [
+            by_id[m["matched_id"]] for m in anchor_matches if m["matched_id"] in by_id
+        ]
+        if anchor:
+            evidence.append(
+                f"anchor: locality '{structured.locality}' matched "
+                f"{anchor[0].landmark_id} ('{anchor[0].record.canonical_name}'); "
+                f"the doorstep is inside it, so it is geocoded from here"
+            )
 
     # --- S4 geocode --------------------------------------------------------
     stop = watch.time("s4_geocode")
-    geo = _geocode_deterministic(parsed)
+    matched = _matched_candidates(structured, retrieval)
+    relations = [lm.relation for lm in structured.landmarks if lm.matched_id]
+    if anchor:
+        # The anchor outranks any "near X": it is where the address is.
+        matched = [anchor[0], *[c for c in matched if c is not anchor[0]]]
+        relations = [Relation.INSIDE, *relations]
+    geo_result = geocode_stage.geocode(
+        candidates=matched,
+        relations=relations or None,
+        pincode=parsed.pincode,
+        address_text=parsed.clean_text,
+        geocoder=providers.geocoder,
+        use_landmark_graph=stack.uses_retrieval,
+    )
     stop()
-    if geo is not None:
-        evidence.append(
-            f"geocoded from {geo.source.value} at "
-            f"({geo.lat:.5f}, {geo.lng:.5f}), accuracy ~{geo.accuracy_m:.0f} m"
-        )
-        if geo.source is GeoSource.PINCODE_CENTROID:
-            evidence.append(
-                "this is a pincode centroid, NOT a doorstep -- do not route a "
-                "rider to it as a final destination"
-            )
-    else:
-        evidence.append("no coordinate could be derived: no validated pincode")
+    geo = geo_result.geo
+    evidence.extend(geo_result.evidence)
 
     # --- S5 DIGIPIN --------------------------------------------------------
     stop = watch.time("s5_digipin")
@@ -324,15 +515,28 @@ def resolve(
             digipin = digipin_encode(geo.lat, geo.lng)
             evidence.append(f"DIGIPIN {digipin} computed locally from the coordinate")
         except DigipinError as exc:
-            # A coordinate outside the national grid means an upstream error, not
-            # a DIGIPIN problem. Recorded rather than raised: the rest of the
-            # resolution is still useful.
             evidence.append(f"DIGIPIN not computed: {exc}")
     stop()
 
     # --- S6 confidence -----------------------------------------------------
     stop = watch.time("s6_confidence")
-    features = _build_features(parsed, geo, structured)
+    features = _build_features(
+        parsed=parsed,
+        geo=geo,
+        structured=structured,
+        retrieval=retrieval,
+        model_self_confidence=(
+            model_result.self_confidence
+            if model_result is not None and not model_result.failed
+            else None
+        ),
+        cfg=cfg,
+    )
+    if model_result is not None and model_result.failed:
+        # A model outage caps confidence and forces a question, rather than
+        # returning a confident deterministic-only answer as if S3 had run.
+        features.penalties.append(("s3_unavailable", 0.6))
+
     raw_score = conf.score(features)
     calibrated = calibrator(raw_score)
     stop()
@@ -345,33 +549,46 @@ def resolve(
 
     # --- S7 decide ---------------------------------------------------------
     stop = watch.time("s7_decide")
-    devanagari = "devanagari" in norm.scripts
-    clarification: Clarification | None = None
-
-    if calibrated >= cfg.thresholds.resolved_at:
-        status = Status.RESOLVED
-    else:
-        status = Status.NEEDS_INFO
-        clarification = _choose_question(structured, parsed, devanagari)
-        evidence.append(
-            f"below threshold {cfg.thresholds.resolved_at:.2f}: asking one "
-            f"question about '{clarification.field}'"
-        )
+    decision = decide_stage(
+        confidence=calibrated,
+        structured=structured,
+        geo=geo,
+        candidates=retrieval.candidates if retrieval else [],
+        cfg=cfg,
+        devanagari="devanagari" in norm.scripts,
+        model_alternatives=(
+            model_result.alternatives if model_result is not None else None
+        ),
+    )
     stop()
+    evidence.extend(decision.evidence)
 
-    return Resolution(
-        status=status,
+    resolution = Resolution(
+        status=decision.status,
         confidence=calibrated,
         structured=structured,
         geo=geo,
         digipin=digipin,
         evidence=evidence,
-        clarification=clarification,
-        alternatives=[],
+        clarification=decision.clarification,
+        alternatives=decision.alternatives,
         correlation_id=correlation_id,
         timings_ms=watch.timings,
         cached=False,
     )
+
+    # --- cache write -------------------------------------------------------
+    if cache is not None:
+        payload = resolution.model_dump(mode="json")
+        if cache.should_cache(payload):
+            cache.put(
+                cache_key=norm.cache_key,
+                text=norm.text,
+                pincode=parsed.pincode,
+                resolution=payload,
+            )
+
+    return resolution
 
 
 def resolve_to_dict(raw: str, **kwargs: Any) -> dict[str, Any]:

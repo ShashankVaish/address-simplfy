@@ -59,9 +59,16 @@ GEO_CONFIRM_HI = (
     "Map par apna ghar tap kar dijiye."
 )
 GEO_CONFIRM_EN = (
-    "We have your address but not the exact spot. "
-    "Please tap your building on the map."
+    "We have your address but not the exact spot. Please tap your building on the map."
 )
+
+
+# A candidate must be named this strongly by the text to count as a rival at
+# all; below it, retrieval merely returned something nearby. Matches the
+# matcher's own acceptance floor in `retrieve.MIN_MATCH_AFFINITY`.
+MIN_RIVAL_AFFINITY = 0.35
+# Two rivals whose affinities are within this are "named about equally well".
+AMBIGUOUS_AFFINITY_DELTA = 0.10
 
 
 @dataclass
@@ -75,26 +82,32 @@ class Decision:
 def find_ambiguity(
     candidates: list[Candidate], cfg: Config
 ) -> tuple[Candidate, Candidate] | None:
-    """Two near-equal candidates that are far apart on the ground.
+    """Two candidates the text names about equally well, far apart on the ground.
 
-    Both conditions are required. Near-equal scores for two landmarks 20 m
-    apart do not matter -- either choice puts the rider in the right place.
-    Scores far apart do not matter either, however distant the candidates:
-    the winner is a clear winner. It is only the conjunction that is dangerous.
+    Both conditions are required. Equal affinity for two landmarks 20 m apart
+    does not matter -- either choice puts the rider in the right place. Unequal
+    affinity does not matter either, however distant the candidates: the winner
+    is a clear winner. It is only the conjunction that is dangerous.
+
+    Rivalry is judged on *name affinity*, deliberately not on the RRF score.
+    RRF gives adjacent ranks in one signal scores of 1/61 and 1/62 -- a 1.6%
+    gap -- regardless of whether the names resemble each other at all. Judged
+    on that, a quarter of the dev split came back AMBIGUOUS. Affinity asks the
+    question that actually matters: does the text name both of these places?
     """
-    if len(candidates) < 2:
+    # Only candidates the text plausibly names can be rivals. Two landmarks
+    # returned by proximity alone are simply the two nearest places.
+    named = sorted(
+        (c for c in candidates if c.affinity >= MIN_RIVAL_AFFINITY),
+        key=lambda c: (-c.affinity, -c.rrf_score, c.landmark_id),
+    )
+    if len(named) < 2:
         return None
 
-    best = candidates[0]
-    best_score = best.rrf_score or 0.0
-    if best_score <= 0.0:
-        return None
-
-    for rival in candidates[1:]:
-        relative_gap = (best_score - rival.rrf_score) / best_score
-        if relative_gap > cfg.thresholds.ambiguous_score_delta:
-            # Candidates are sorted by score, so once the gap is wide enough,
-            # every later candidate is further behind still.
+    best = named[0]
+    for rival in named[1:]:
+        if best.affinity - rival.affinity > AMBIGUOUS_AFFINITY_DELTA:
+            # Sorted by affinity, so every later candidate is further behind.
             return None
         separation = _haversine_m(
             best.record.lat, best.record.lng, rival.record.lat, rival.record.lng
@@ -165,9 +178,9 @@ def decide(
             best.record.lat, best.record.lng, rival.record.lat, rival.record.lng
         )
         evidence.append(
-            f"AMBIGUOUS: '{best.record.canonical_name}' and "
-            f"'{rival.record.canonical_name}' score within "
-            f"{cfg.thresholds.ambiguous_score_delta:.0%} of each other but are "
+            f"AMBIGUOUS: the text names '{best.record.canonical_name}' "
+            f"(affinity {best.affinity:.2f}) and '{rival.record.canonical_name}' "
+            f"(affinity {rival.affinity:.2f}) about equally well, but they are "
             f"{separation:.0f} m apart; both are returned rather than guessing"
         )
         alternatives = [

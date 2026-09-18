@@ -202,3 +202,129 @@ Two things we are glad we did today rather than Saturday:
   asking for information we already have is how customers learn to ignore us; it
   now asks for a map confirmation instead, which is the right question when the
   gap is an unverified location rather than an absent field.
+
+---
+
+## Day 2 — Friday 18 September
+
+### A fixed 3 km geo radius is a metro assumption, and it was excluding the right answer
+
+The architecture document describes the geo filter as "3 km around the pincode
+centroid — the highest-value filter in the system". It is the highest-value
+filter in a *city*. Measured on the dev split, **29% of localities sit more than
+3 km from their own pincode centroid**, with a 90th percentile of 14.8 km and a
+maximum of 82 km. Rural pincodes are areas, not points.
+
+The consequence was invisible until measured: with the hybrid signals enabled,
+the correctly named landmark was being *filtered out* before scoring, and the
+median geocode error went from 0 m (BM25 only, no geo filter) to over 1 km.
+The radius now scales with the pincode's own estimated size, which we already
+compute from its office count. A GPS hint keeps the tight radius, because a
+rider is standing near the doorstep. After the change both retrieval modes give
+a 0 m median.
+
+The general lesson: a constant that is obviously right for Delhi is a *claim*
+about the rest of India, and the gold set is spread across 23 cities precisely
+so that such claims get tested.
+
+### "Near X" is not "at X"
+
+Every address that named a landmark was being geocoded *from the landmark*.
+"Baulabanadh Post Office, near Nairi" is a doorstep at Baulabanadh, near Nairi
+— and Baulabanadh itself was in the graph, at exactly the true coordinate. The
+pipeline never looked it up, because S1 only extracts *relation* phrases and a
+locality has no relation word in front of it.
+
+The fix is to treat the locality as the **anchor**: it is searched alongside the
+relation phrases, and when it matches, S4 geocodes from it with an `inside`
+relation and a wider accuracy radius, ahead of any "near". That single change
+moved the median geocode error of the retrieval stacks from 1,358 m to **0 m**.
+
+### RRF rank adjacency is not ambiguity
+
+The AMBIGUOUS rule compared the top two candidates' fused scores and called them
+"near-equal" within 5%. Under Reciprocal Rank Fusion, ranks 1 and 2 in the same
+signal score 1/61 and 1/62 — a 1.6% gap — *whatever the names are*. A quarter
+of the dev split came back AMBIGUOUS, most of it two random nearby places.
+
+Rivalry is now judged on **name affinity**: does the text name both candidates
+about equally well? Two places found by proximity alone are never rivals. The
+ambiguous rate fell from 25% to 4%, and the cases that remain are the real
+ones — the two Shiv Mandirs with no pincode to separate them.
+
+### The prompt budget is not the candidate budget
+
+`candidates_to_model = 8` was applied inside retrieval, so only the top eight
+fused candidates were ever materialised. With the proximity signal on, those
+eight slots filled with nearby-but-unnamed places, and the landmark the text
+actually named — first by BM25, ninth after fusion — was gone before the
+affinity matcher could see it. The cap now applies only to what is *sent to the
+model*; the matcher and S4 see the whole list.
+
+### Our corpus generator was writing Hindi nobody writes
+
+It mapped "near Nairi" to "के पास नैरि": English word order with a Hindi
+postposition. Real Hindi puts the relation *after* the landmark — "नैरि के
+पास". The extractor, correctly matching the postposition, then captured the
+words *before* it: the pincode and a transliterated "post office". The corpus
+now rewrites word order before transliterating, and the phrase cleaner strips
+digits and postal jargon from both ends of a captured landmark.
+
+### A backspace character had been silently disabling a Day 1 feature
+
+Writing `\b` through two layers of shell and Python quoting produced a literal
+U+0008 in `_SUB_LOCALITY_RE`, so the pattern could never match and
+`sub_locality_of()` had returned `None` for every seed since Thursday. The
+field showed as "unmeasured" in the ablation, which was true and also the only
+visible symptom. Found by grepping every `.py` file for control characters,
+which is now something we do after any scripted edit. `sub_locality` is
+measured as of today.
+
+### Two real bugs my own tests caught in code I had just written
+
+- `normalise_model_output` recorded a conflict when the model disagreed with a
+  validated pincode — and then `continue`d before copying the validated value
+  into the result, so the one field we were *sure* of vanished from S3's
+  output. The pipeline masked it (S1's value survived by a different route),
+  which is exactly why the module has its own tests.
+- `attach_matches` assigned candidates to phrases in retrieval order, so
+  "behind shiv mandir" got whichever candidate ranked first overall — plausibly
+  the Gupta store from the *other* phrase in the same address. Assignment is
+  now by measured affinity, globally greedy and one-to-one.
+
+### What retrieval alone is worth, measured honestly
+
+Bedrock access is not yet granted and Ollama is not installed here, so the
+model stacks B–E report **NOT RUN** with the exact reason rather than a number
+from a stub. What *can* be measured is retrieval without a model — the two
+diagnostic rows — and the result is the strongest single argument the
+architecture has:
+
+| | Geo median | Geo p90 | Coverage |
+|---|---|---|---|
+| A — no retrieval | 969 m | 18,449 m | 70% |
+| R1 — + BM25 retrieval | **0 m** | 2,388 m | 87% |
+| R2 — + vector + geo | **0 m** | 2,895 m | 89% |
+
+Field F1 is unchanged (0.826) across all three, as it should be: retrieval does
+not extract fields, it *places* them. That separation is the point of running
+the diagnostics — when the model stacks do run, any F1 gain is attributable to
+S3 and any geocode gain to S2, and neither can take credit for the other.
+
+Two honest caveats travel with those numbers. The local vector signal is a
+character-trigram hashing model, not Titan, so R2 is a lower bound. And the
+landmark graph was warmed from the same directory the addresses came from — the
+"0 m" says the graph *works* when it knows the place, not that it knows every
+place.
+
+### Smaller notes
+
+- `OpenSearch _msearch` is one HTTP round trip carrying three query bodies. It
+  satisfies "one round trip" (NFR-04) while returning each signal's ranking
+  separately, which RRF needs and a blended query cannot provide.
+- Delivery chatter ("call before coming") is now stripped in S0, before the
+  cache key is hashed. Two submissions of the same address with and without it
+  are an exact cache hit rather than two pipeline runs.
+- In `aws` mode the near-duplicate cache is off: it would cost a Titan call on
+  every request *before* knowing whether the cache hits. It is on in local mode
+  where the embedder is free. The hit rate will decide whether that changes.

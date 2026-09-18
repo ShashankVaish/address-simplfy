@@ -83,9 +83,7 @@ class InMemoryStore:
         rows.sort(key=lambda r: r["SK"])
         return rows[:limit]
 
-    def query_status(
-        self, status: str, limit: int = 50
-    ) -> list[dict[str, Any]]:
+    def query_status(self, status: str, limit: int = 50) -> list[dict[str, Any]]:
         """GSI-1 equivalent: the review queue, oldest first."""
         rows = [
             dict(item) for item in self._items.values() if item.get("status") == status

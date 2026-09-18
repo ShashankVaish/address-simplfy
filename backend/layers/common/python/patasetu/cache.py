@@ -61,7 +61,9 @@ class CacheStats:
 
     @property
     def hit_rate(self) -> float:
-        return (self.exact_hits + self.near_hits) / self.lookups if self.lookups else 0.0
+        return (
+            (self.exact_hits + self.near_hits) / self.lookups if self.lookups else 0.0
+        )
 
 
 class ResolutionCache:

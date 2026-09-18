@@ -54,6 +54,12 @@ class Candidate:
     rrf_score: float
     signals: dict[str, int] = field(default_factory=dict)
     distance_m: float | None = None
+    # How strongly the *text* names this landmark: the best `name_affinity`
+    # against any phrase in the address, in [0,1]. Set by the pipeline after
+    # matching. This -- not the RRF score -- is what S7 compares when deciding
+    # whether two candidates are genuine rivals, because adjacent RRF ranks are
+    # always numerically close (1/61 vs 1/62) whether or not the names are.
+    affinity: float = 0.0
 
     @property
     def found_by(self) -> list[str]:
@@ -151,9 +157,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 
-def build_query_text(
-    landmark_names: list[str], retrieval_text: str
-) -> str:
+def build_query_text(landmark_names: list[str], retrieval_text: str) -> str:
     """The text S2 searches with.
 
     Prefers the extracted landmark phrases over the whole address. Searching the
@@ -175,14 +179,20 @@ def retrieve(
     providers: Providers,
     use_vector: bool = True,
     use_geo: bool = True,
+    radius_m: float | None = None,
 ) -> RetrievalResult:
     """Run S2.
 
     `use_vector` and `use_geo` exist for the ablation: configuration C is this
     same code path with both switched off, so the measured gap from C to D is
     attributable to those two signals and nothing else.
+
+    `radius_m` overrides the configured geo radius. The caller knows what kind
+    of centre it passed: a GPS hint deserves the tight default, a pincode
+    centroid needs a radius scaled to the pincode's size.
     """
     result = RetrievalResult(candidates=[])
+    radius = radius_m if radius_m is not None else cfg.retrieval.geo_radius_m
     query_text = build_query_text(landmark_names, retrieval_text)
     if not query_text.strip():
         result.evidence.append("S2 skipped: nothing to search for")
@@ -217,7 +227,7 @@ def retrieve(
             query_text=query_text,
             query_vector=query_vector,
             centre=effective_centre,
-            radius_m=cfg.retrieval.geo_radius_m,
+            radius_m=radius,
             size=cfg.retrieval.per_signal_size,
         )
     except ProviderUnavailable as exc:
@@ -235,8 +245,7 @@ def retrieve(
 
     if not populated:
         result.evidence.append(
-            f"S2 found no landmark candidates for {query_text!r} "
-            f"within {cfg.retrieval.geo_radius_m:.0f} m"
+            f"S2 found no landmark candidates for {query_text!r} within {radius:.0f} m"
         )
         return result
 
@@ -251,7 +260,14 @@ def retrieve(
             effective_centre, [doc_id for doc_id, _, _ in fused]
         )
 
-    for doc_id, score, ranks in fused[: cfg.retrieval.candidates_to_model]:
+    # Materialise the whole fused list, not just the top few. The cap in
+    # `candidates_to_model` is a *prompt* budget and is applied where the prompt
+    # is built. Applying it here let the proximity signal fill every slot with
+    # nearby-but-unnamed places, and the landmark the text actually named --
+    # ranked first by BM25 but pushed to ninth by two weak signals -- was gone
+    # before the affinity matcher could see it. Measured: it cost R2 a full
+    # kilometre of median geocode error relative to BM25 alone.
+    for doc_id, score, ranks in fused:
         record = engine.get(doc_id)
         if record is None:
             # The index returned an id we cannot fetch. Skip it rather than
@@ -276,9 +292,7 @@ def retrieve(
             k=cfg.retrieval.rrf_k,
         )
         best = result.candidates[0]
-        located = (
-            f" at {best.distance_m:.0f} m" if best.distance_m is not None else ""
-        )
+        located = f" at {best.distance_m:.0f} m" if best.distance_m is not None else ""
         result.evidence.append(
             f"landmark '{best.record.canonical_name}' matched "
             f"{best.landmark_id}{located} "
@@ -325,9 +339,7 @@ def name_affinity(phrase: str, record: LandmarkRecord, embedder: object) -> floa
         if overlap:
             # Jaccard-style, so a one-word phrase matching a one-word name
             # scores higher than it matching a five-word name.
-            best_lexical = max(
-                best_lexical, overlap / len(phrase_tokens | name_tokens)
-            )
+            best_lexical = max(best_lexical, overlap / len(phrase_tokens | name_tokens))
 
     vector_similarity = 0.0
     embed = getattr(embedder, "embed", None)
@@ -369,7 +381,9 @@ def attach_matches(
     """
     out: list[dict[str, object]] = [
         {
-            "name": name,
+            # Title-cased for consistency with the S1 projection, so an
+            # unmatched landmark reads the same whichever path produced it.
+            "name": name.title(),
             "relation": relation,
             "matched_id": None,
             "match_score": None,
@@ -384,6 +398,8 @@ def attach_matches(
     for i, (phrase, _relation) in enumerate(landmark_names):
         for candidate in result.candidates:
             affinity = name_affinity(phrase, candidate.record, embedder)
+            # Record the strongest affinity seen for each candidate, for S7.
+            candidate.affinity = max(candidate.affinity, affinity)
             if affinity >= MIN_MATCH_AFFINITY:
                 pairs.append((affinity, i, candidate.landmark_id))
 
