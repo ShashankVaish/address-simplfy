@@ -39,6 +39,7 @@ Parameters:
       deploy flips it back -- the rest of the stack is untouched either way.
   CheapModelId:
     Type: String
+    # In ap-south-1 pass the inference-profile id: apac.amazon.nova-lite-v1:0
     Default: amazon.nova-lite-v1:0
   StrongModelId:
     Type: String
@@ -308,10 +309,16 @@ Resources:
             - Effect: Allow
               Action: [bedrock:InvokeModel, bedrock:Converse]
               Resource:
-                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${CheapModelId}"
-                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${StrongModelId}"
+                # In ap-south-1 the Nova and Claude models are only invokable
+                # through a cross-region inference profile ("apac." prefix on
+                # the model id), which may route the request to any APAC
+                # region. The policy therefore has to allow the *underlying*
+                # foundation models in every region -- pinning the ARN to
+                # ${AWS::Region} produced AccessDenied on the first real call.
+                # The embedding model is a plain regional id and stays pinned.
+                - "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
-                # Cross-region inference profiles, if a model is served that way.
                 - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
             - Effect: Allow
               Action: [aoss:APIAccessAll]
