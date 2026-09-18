@@ -47,9 +47,17 @@ Parameters:
   EmbeddingModelId:
     Type: String
     Default: amazon.titan-embed-text-v2:0
+  AdminPrincipalArn:
+    Type: String
+    Default: ""
+    Description: >-
+      IAM user or role ARN allowed to read/write the OpenSearch collection from
+      a laptop (create_index, warm_landmarks --upsert). The Lambda role is
+      always allowed; this adds one human. Empty means Lambda only.
 
 Conditions:
   UseOpenSearch: !Equals [!Ref EnableOpenSearch, "true"]
+  HasAdminPrincipal: !Not [!Equals [!Ref AdminPrincipalArn, ""]]
 
 Globals:
   Function:
@@ -215,9 +223,17 @@ Resources:
     Properties:
       Name: !Sub "patasetu-data-${Stage}"
       Type: data
-      Policy: !Sub
-        - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}"]}]'
-        - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+      # The Lambda role always; plus the operator's own principal when given, so
+      # create_index and warm_landmarks can run from a laptop. Without that
+      # second entry every request from the CLI is a 403.
+      Policy: !If
+        - HasAdminPrincipal
+        - !Sub
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${AdminPrincipalArn}"]}]'
+          - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+        - !Sub
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}"]}]'
+          - ResolverRole: !GetAtt ResolverFunctionRole.Arn
 
   # --- geocoder fallback: Amazon Location Service ----------------------------
   PlaceIndex:
