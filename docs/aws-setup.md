@@ -1,0 +1,238 @@
+# AWS Setup — what to get and how (easy steps)
+
+This is the checklist for tonight's deploy. Follow it top to bottom. About
+30–40 minutes, plus waiting for Bedrock approval (can be hours — do that step
+**first**).
+
+**Golden rule:** never paste access keys into chat, Slack, WhatsApp, or a
+file in the repo. They go into a local config file on your machine only (step
+6 shows how). If a key ever leaks, delete it in the AWS console and make a new
+one.
+
+---
+
+## Step 1 — Log in to AWS and pick the region
+
+1. Go to https://console.aws.amazon.com and log in.
+2. Top-right corner, region dropdown → choose **Asia Pacific (Mumbai)
+   `ap-south-1`**.
+3. Everything below happens in this region. If you see a resource missing
+   later, check the region first — it is the most common mistake.
+
+---
+
+## Step 2 — Request Bedrock model access (do this NOW, it takes time)
+
+1. In the search bar type **Bedrock** → open **Amazon Bedrock**.
+2. Left menu → **Model access** → **Modify model access** (or "Manage").
+3. Tick these three:
+   - **Amazon Nova Lite**
+   - **Anthropic Claude** (the latest Claude model available in the list)
+   - **Amazon Titan Text Embeddings V2**
+4. Submit. Amazon models are usually instant; Anthropic may ask a short use-case
+   form and take a few hours.
+5. You are done when the status column says **Access granted** for all three.
+
+> If a model is not offered in Mumbai, tell me — we either use a cross-region
+> inference profile (already allowed in the template) or switch that one model
+> to `us-east-1`.
+
+---
+
+## Step 3 — Redeem the hackathon credits and set a budget alarm
+
+1. Search **Billing** → **Credits** → **Redeem credit** → paste the promo code
+   from the event.
+2. Search **Budgets** → **Create budget** → *Cost budget* → amount **$25** →
+   alert at 80% and 100% → put your email → create.
+
+The deploy template also creates a CloudWatch billing alarm at $25, but AWS
+Budgets is the one that emails you reliably.
+
+---
+
+## Step 4 — Create a deploy user (the credentials I need)
+
+Do **not** use your root account keys. Make a separate user just for deploying.
+
+1. Search **IAM** → left menu **Users** → **Create user**.
+2. User name: `patasetu-deploy`. Do **not** tick "console access". Next.
+3. Permissions → **Attach policies directly** → search and tick:
+   - `AdministratorAccess`
+
+   (Yes, admin. The stack creates IAM roles, an OpenSearch collection, Cognito,
+   a place index, and more — a narrow policy would take an hour to get right
+   and this is a 4-day project. Delete the user after the event.)
+4. Next → **Create user**.
+5. Click the user name → **Security credentials** tab → **Access keys** →
+   **Create access key**.
+6. Choose **Command Line Interface (CLI)** → tick the confirmation → Next →
+   Create.
+7. You will see two values. Copy both **now** — the secret is shown only once:
+   - **Access key ID** — looks like `AKIA…` (20 characters)
+   - **Secret access key** — long random string
+
+Keep them somewhere private for step 6.
+
+---
+
+## Step 5 — Install the two command-line tools
+
+On the machine that will run the deploy (yours, or mine via your session):
+
+**AWS CLI**
+- Windows: download and run https://awscli.amazonaws.com/AWSCLIV2.msi
+- Mac: `brew install awscli`
+- Check: `aws --version` → should print `aws-cli/2.x`
+
+**SAM CLI** (builds and deploys the stack)
+- Windows: download the installer from
+  https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+- Mac: `brew install aws-sam-cli`
+- Check: `sam --version` → should print `SAM CLI, version 1.x`
+
+**Docker Desktop** is *not* required — the Lambda builds are pure Python.
+
+---
+
+## Step 6 — Put the credentials on the machine (safely)
+
+Open a terminal and run:
+
+```
+aws configure
+```
+
+It asks four questions. Answer:
+
+```
+AWS Access Key ID:      <paste the AKIA… key>
+AWS Secret Access Key:  <paste the secret>
+Default region name:    ap-south-1
+Default output format:  json
+```
+
+This writes them to `~/.aws/credentials` on your machine. Nothing goes into
+the repo (`.gitignore` already blocks `.env` files anyway).
+
+**Check it worked:**
+
+```
+aws sts get-caller-identity
+```
+
+You should see your account number and `user/patasetu-deploy`. If you see an
+error, the key was mistyped — run `aws configure` again.
+
+---
+
+## Step 7 — What to send me
+
+Just this line, from the command above:
+
+```
+"Arn": "arn:aws:iam::123456789012:user/patasetu-deploy"
+```
+
+plus a **"Bedrock: granted"** or **"Bedrock: pending"**. That is all I need to
+confirm the environment is ready. **Do not send the keys themselves.**
+
+If I'm running the deploy from this session on your machine, the CLI reads
+`~/.aws/credentials` automatically — nothing to pass me.
+
+If instead you want to hand credentials to a different machine, set them as
+environment variables in that terminal only:
+
+```
+# PowerShell
+$env:AWS_ACCESS_KEY_ID = "AKIA..."
+$env:AWS_SECRET_ACCESS_KEY = "..."
+$env:AWS_DEFAULT_REGION = "ap-south-1"
+```
+
+They vanish when the terminal closes.
+
+---
+
+## Step 8 — The deploy itself (I run this; here for reference)
+
+```
+cd backend
+python -m scripts.prepare_layer          # gazetteer into the Lambda layer
+sam build
+sam deploy --guided                      # first time: answer the prompts below
+./scripts/smoke.sh                       # must print "OK smoke passed"
+python -m scripts.create_index --load --warm
+```
+
+`sam deploy --guided` prompts — answer like this:
+
+| Prompt | Answer |
+|---|---|
+| Stack Name | `patasetu` |
+| AWS Region | `ap-south-1` |
+| Parameter Stage | `dev` |
+| Parameter ServingStack | `A` tonight, `E` once Bedrock is granted |
+| Parameter EnableOpenSearch | `true` |
+| Confirm changes before deploy | `N` |
+| Allow SAM CLI IAM role creation | `Y` |
+| Disable rollback | `N` |
+| ResolverFunction may not have authorization defined, Is this okay? | `Y` (the playground is public by design) |
+| QueueApiFunction may not have authorization defined | `Y` (for tonight; Cognito goes on before the demo) |
+| Save arguments to configuration file | `Y` |
+
+After it finishes it prints **Outputs**. Copy `ApiUrl` — that is the public
+URL, and it goes into the console's `.env.local` as `VITE_API_URL`.
+
+---
+
+## Step 9 — Every night before sleeping
+
+```
+sam deploy --parameter-overrides EnableOpenSearch=false
+```
+
+OpenSearch Serverless is the only thing in the stack that bills while idle
+(by the hour). This removes it; everything else costs nothing at rest. Next
+morning, deploy again with `EnableOpenSearch=true` and re-run
+`create_index --load --warm`.
+
+---
+
+## Optional — let GitHub deploy automatically
+
+Only if you want `git push` to deploy. Skip for tonight.
+
+1. IAM → **Identity providers** → Add provider → OpenID Connect →
+   URL `https://token.actions.githubusercontent.com`, audience
+   `sts.amazonaws.com`.
+2. IAM → Roles → Create role → *Web identity* → that provider → restrict to
+   your repo → attach `AdministratorAccess` → name it `patasetu-github-deploy`.
+3. Copy the role ARN into the GitHub repo: Settings → Secrets → Actions →
+   new secret `AWS_ROLE_ARN`.
+
+`.github/workflows/deploy.yml` already uses it.
+
+---
+
+## Quick checklist
+
+- [ ] Region is `ap-south-1`
+- [ ] Bedrock access requested for Nova Lite, Claude, Titan Embeddings V2
+- [ ] Credits redeemed, $25 budget alert set
+- [ ] IAM user `patasetu-deploy` created with an access key
+- [ ] `aws --version` and `sam --version` both work
+- [ ] `aws configure` done, `aws sts get-caller-identity` shows the user
+- [ ] Sent me the ARN line and the Bedrock status — **not the keys**
+
+---
+
+## If something goes wrong
+
+| You see | Do this |
+|---|---|
+| `Unable to locate credentials` | run `aws configure` again |
+| `AccessDenied` during deploy | the user is missing `AdministratorAccess` — re-check step 4.3 |
+| `Model access is not enabled` | Bedrock step 2 not granted yet — deploy with `ServingStack=A` meanwhile |
+| `is not available in ap-south-1` | tell me the model name; we switch to a cross-region profile |
+| Stack stuck in `ROLLBACK_COMPLETE` | delete it in CloudFormation and deploy again (nothing in it is persistent yet) |
