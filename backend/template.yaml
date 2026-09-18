@@ -90,7 +90,10 @@ Resources:
   CommonLayer:
     Type: AWS::Serverless::LayerVersion
     Metadata:
-      BuildMethod: python3.12
+      # makefile, not python3.12: the Makefile pins Linux/arm64 wheels so the
+      # layer is correct when built on a Mac or Windows laptop. See
+      # layers/common/Makefile.
+      BuildMethod: makefile
       BuildArchitecture: arm64
     Properties:
       LayerName: !Sub "patasetu-common-${Stage}"
