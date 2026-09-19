@@ -218,10 +218,14 @@ python -m eval.learning_curve   # empty graph, fed one address at a time -> lear
 ```
 
 Results live in [`docs/results/`](./docs/results/ablation.md): the ablation
-table (rows B–E measured against the deployed stack), the reliability
-diagram (raw ECE 0.235 → 0.032 cross-validated on the full system) and
-the learning curve (one confirmed delivery per locality takes graph geocoding
-from 6% to 81%).
+table on both the dev and the held-out **test** split (rows B–E measured
+against the deployed stack), a targets-versus-actuals table that says which
+targets were missed, the reliability diagram (raw ECE 0.235 → 0.032
+cross-validated on the full system) and the learning curve (one confirmed
+delivery per locality takes graph geocoding from 6% to 81%). The short
+version: retrieval takes the median geocode error from 491–969 m to **0 m**
+on both splits; the field-extraction targets are not met, and the page says
+why.
 
 `R1`/`R2` are diagnostic rows — retrieval with no LLM — that isolate what S2
 contributes to geocoding. Configurations that cannot run report **NOT RUN**

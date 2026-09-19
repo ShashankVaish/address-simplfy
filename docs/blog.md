@@ -133,4 +133,11 @@ regex floor (0.83) — locality recall is where it loses — so the deterministi
 parse stays as the floor. Calibrated ECE on the full system: 0.24 raw → 0.03
 cross-validated. p95 latency 2.8 s against a 1.2 s target, the cost of Claude
 escalations. No confidence band reaches 95% precision yet; we report 0.71 at
-the 0.80 threshold rather than claim the target. Still to add: the video.*
+the 0.80 threshold rather than claim the target.*
+
+*Held-out test split, run once on Sunday: the same shape. 491 m → 0 m, coverage
+64% → 95%, field F1 0.73 at every configuration (harder than dev). One
+surprise we are not hiding: BM25-only retrieval beat the full hybrid on
+test — 58% auto-resolution at 0.78 precision against 26% at 0.74. The
+ambiguity thresholds were tuned on dev and are too timid. That is the first
+thing we would change on Monday.*

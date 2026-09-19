@@ -184,10 +184,16 @@ def main() -> int:
     ap.add_argument("--split", choices=("dev", "test"), default="dev")
     ap.add_argument("--stacks", nargs="+", default=["A"], choices=list(STACK_LABELS))
     ap.add_argument("--data-dir", type=Path, default=Path("eval/data"))
-    ap.add_argument("--out", type=Path, default=Path("../docs/results/ablation.md"))
-    ap.add_argument("--json-out", type=Path, default=Path("eval/data/ablation.json"))
+    # Per-split outputs, so a test-split run never overwrites the dev-split
+    # page. docs/results/ablation.md is the hand-written summary of both.
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--json-out", type=Path, default=None)
     ap.add_argument("--threshold", type=float, default=None)
     args = ap.parse_args()
+    if args.out is None:
+        args.out = Path(f"../docs/results/ablation_{args.split}.md")
+    if args.json_out is None:
+        args.json_out = Path(f"eval/data/ablation_{args.split}.json")
 
     path = args.data_dir / f"gold_{args.split}.jsonl"
     if not path.exists():
