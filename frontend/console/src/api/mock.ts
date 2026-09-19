@@ -7,7 +7,7 @@
  * sees in mock mode is what the demo video will show.
  */
 
-import type { AuthorizeRequest, AuthzDecision, QueueItem, QueueResponse, Resolution } from "./types";
+import type { AuthorizeRequest, AuthzDecision, HealthResponse, QueueItem, QueueResponse, Resolution } from "./types";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -205,4 +205,9 @@ export async function mockAuthorize(req: AuthorizeRequest): Promise<AuthzDecisio
     return deny(reason);
   }
   return allow(["contact-allowed-window"]);
+}
+
+export async function mockHealth(): Promise<HealthResponse> {
+  await wait(80);
+  return { status: "ok", provider: "local", serving_stack: "E", calibration: "identity", gazetteer: { pincodes: 19_300 }, init_ms: 270 };
 }

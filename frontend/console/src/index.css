@@ -2,6 +2,202 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens. One source of truth for the console, mirrored by hand in
+ * frontend/landing/index.html so the two read as one product.
+ *
+ * Colours are RGB triplets so Tailwind can apply alpha (`bg-leaf/10`).
+ * Three theme states: bare :root = light; system-dark applies when nothing is
+ * stamped; an explicit data-theme wins in both directions.
+ */
 @layer base {
-  body { @apply antialiased; }
+  :root {
+    --c-ground: 246 241 231;
+    --c-surface: 255 255 255;
+    --c-raised: 251 249 244;
+    --c-sunken: 17 24 39;
+    --c-ink: 17 24 39;
+    --c-ink-2: 75 80 96;
+    --c-muted: 111 115 128;
+    --c-hairline: 227 221 208;
+    --c-hairline-2: 207 200 184;
+    --c-saffron: 232 125 30;
+    --c-leaf: 31 122 77;
+    --c-deny: 180 35 24;
+    --c-warning: 138 90 0;
+    --c-code-ink: 233 230 223;
+    --c-code-dim: 139 145 163;
+    --c-code-kw: 159 180 255;
+    --c-code-ty: 199 183 255;
+    --c-code-st: 255 211 154;
+    --c-code-nu: 184 240 200;
+
+    --shadow-lift: 0 1px 0 rgb(17 24 39 / 0.04), 0 8px 24px -16px rgb(17 24 39 / 0.25);
+    --shadow-verdict: 0 12px 40px -20px rgb(17 24 39 / 0.35);
+
+    --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --ease-settle: cubic-bezier(0.3, 0.9, 0.3, 1);
+
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --c-ground: 18 20 26;
+      --c-surface: 25 28 36;
+      --c-raised: 31 35 44;
+      --c-sunken: 12 14 19;
+      --c-ink: 236 235 230;
+      --c-ink-2: 185 188 198;
+      --c-muted: 138 143 156;
+      --c-hairline: 42 46 57;
+      --c-hairline-2: 58 63 77;
+      --c-saffron: 240 141 51;
+      --c-leaf: 63 166 111;
+      --c-deny: 240 119 107;
+      --c-warning: 227 179 65;
+      --shadow-lift: 0 1px 0 rgb(0 0 0 / 0.3), 0 8px 24px -16px rgb(0 0 0 / 0.6);
+      --shadow-verdict: 0 12px 40px -20px rgb(0 0 0 / 0.7);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --c-ground: 18 20 26;
+    --c-surface: 25 28 36;
+    --c-raised: 31 35 44;
+    --c-sunken: 12 14 19;
+    --c-ink: 236 235 230;
+    --c-ink-2: 185 188 198;
+    --c-muted: 138 143 156;
+    --c-hairline: 42 46 57;
+    --c-hairline-2: 58 63 77;
+    --c-saffron: 240 141 51;
+    --c-leaf: 63 166 111;
+    --c-deny: 240 119 107;
+    --c-warning: 227 179 65;
+    --shadow-lift: 0 1px 0 rgb(0 0 0 / 0.3), 0 8px 24px -16px rgb(0 0 0 / 0.6);
+    --shadow-verdict: 0 12px 40px -20px rgb(0 0 0 / 0.7);
+    color-scheme: dark;
+  }
+
+  html {
+    background: rgb(var(--c-ground));
+    color: rgb(var(--c-ink));
+  }
+  body {
+    @apply bg-ground text-ink font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  h1, h2, h3 { text-wrap: balance; }
+
+  /* Visible focus everywhere, in the accent, never suppressed. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-saffron));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Numbers line up. */
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
+
+@layer components {
+  /* Panels: a bordered surface. Shadow only where something is lifted. */
+  .panel {
+    @apply rounded-lg border border-hairline bg-surface;
+  }
+  .panel-title {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-muted;
+  }
+  .eyebrow {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-saffron;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-ink bg-ink px-4 py-2 text-sm font-semibold text-ground transition duration-fast ease-out;
+  }
+  .btn:hover:not(:disabled) { @apply -translate-y-px; }
+  .btn:disabled { @apply cursor-not-allowed opacity-40; }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-hairline-2 bg-transparent px-3 py-1.5 text-sm font-medium text-ink transition duration-fast ease-out;
+  }
+  .btn-ghost:hover:not(:disabled) { @apply bg-raised; }
+  .btn-ghost:disabled { @apply cursor-not-allowed opacity-40; }
+
+  .field {
+    @apply w-full rounded-md border border-hairline-2 bg-surface px-2.5 py-1.5 text-sm text-ink transition duration-fast ease-out;
+  }
+  .field:focus { @apply border-saffron outline-none ring-2 ring-saffron/25; }
+
+  /* Skeleton bones: the shape of what is coming, never a spinner. */
+  .bone {
+    @apply rounded bg-raised;
+    background-image: linear-gradient(90deg, rgb(var(--c-raised)) 0%, rgb(var(--c-hairline)) 50%, rgb(var(--c-raised)) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s var(--ease-out) infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* Staged reveal: visible resting state, then a small rise. */
+  .reveal { @apply transition duration-base ease-out; }
+  .reveal-hidden { @apply translate-y-1 opacity-0; }
+
+  /* Range inputs: the track is drawn by the page, the input only carries the thumb. */
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 28px;
+    background: transparent;
+    margin: 0;
+  }
+  .range::-webkit-slider-runnable-track { height: 28px; background: transparent; }
+  .range::-moz-range-track { height: 28px; background: transparent; }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px; margin-top: 5px; border-radius: 9999px;
+    background: rgb(var(--c-surface));
+    border: 2px solid rgb(var(--c-saffron));
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+    cursor: grab;
+  }
+  .range::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 9999px;
+    background: rgb(var(--c-surface));
+    border: 2px solid rgb(var(--c-saffron));
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+    cursor: grab;
+  }
+  .range:focus-visible { outline: none; }
+  .range:focus-visible::-webkit-slider-thumb { outline: 2px solid rgb(var(--c-saffron)); outline-offset: 2px; }
+  .range:focus-visible::-moz-range-thumb { outline: 2px solid rgb(var(--c-saffron)); outline-offset: 2px; }
+
+  /* Verdict surfaces. */
+  .verdict-allow { border-color: rgb(var(--c-leaf)); box-shadow: var(--shadow-verdict); }
+  .verdict-deny { border-color: rgb(var(--c-deny)); box-shadow: var(--shadow-verdict); }
+}
+
+/* MapLibre chrome on-palette. */
+.maplibregl-ctrl-attrib {
+  font-family: "JetBrains Mono", ui-monospace, monospace !important;
+  font-size: 10px !important;
+  background: rgb(var(--c-surface) / 0.85) !important;
+  color: rgb(var(--c-muted)) !important;
+}
+.maplibregl-ctrl-attrib a { color: rgb(var(--c-ink-2)) !important; }
+.maplibregl-ctrl-group { background: rgb(var(--c-surface)) !important; border: 1px solid rgb(var(--c-hairline)) !important; box-shadow: none !important; }
+.maplibregl-ctrl-group button { color: rgb(var(--c-ink)) !important; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid rgb(var(--c-hairline)) !important; }

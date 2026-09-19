@@ -6,8 +6,8 @@
  * exactly what lets the console be built before the backend exists.
  */
 
-import { mockAuthorize, mockFeedback, mockQueue, mockResolve } from "./mock";
-import type { AuthorizeRequest, AuthzDecision, FeedbackRequest, QueueItem, QueueResponse, ResolveRequest, Resolution } from "./types";
+import { mockAuthorize, mockFeedback, mockHealth, mockQueue, mockResolve } from "./mock";
+import type { AuthorizeRequest, AuthzDecision, FeedbackRequest, HealthResponse, QueueItem, QueueResponse, ResolveRequest, Resolution } from "./types";
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
 
@@ -64,4 +64,9 @@ export async function feedback(req: FeedbackRequest): Promise<QueueItem> {
 export function authorize(req: AuthorizeRequest): Promise<AuthzDecision> {
   if (isMock) return mockAuthorize(req);
   return request<AuthzDecision>("/v1/authorize", { method: "POST", body: JSON.stringify(req) });
+}
+
+export function health(): Promise<HealthResponse> {
+  if (isMock) return mockHealth();
+  return request<HealthResponse>("/health");
 }
