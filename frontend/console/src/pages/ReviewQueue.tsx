@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, feedback, isMock, queue } from "../api/client";
 import { FIELD_ORDER, type QueueItem, type StructuredAddress } from "../api/types";
+import { Stat } from "../components/instruments";
 import { Empty, ErrorNote, EvidenceList, Icon, StatusPill, ageOf } from "../components/ui";
 
 const LABEL: Record<string, string> = {
@@ -64,6 +65,8 @@ export default function ReviewQueue() {
   };
 
   const denied = items.filter((i) => i.review_reason).length;
+  const needsInfo = items.filter((i) => i.status === "NEEDS_INFO").length;
+  const ambiguous = items.filter((i) => i.status === "AMBIGUOUS").length;
 
   return (
     <div className="space-y-5">
@@ -73,19 +76,17 @@ export default function ReviewQueue() {
           <h1 className="mt-1 text-xl font-extrabold tracking-tight">Review queue</h1>
           <p className="mt-1 max-w-[62ch] text-sm text-ink-2">Every case the system would not decide alone, oldest first, with the reason it is here. Approving one tells the landmark graph the delivery was right.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <div className="font-mono text-xl font-semibold tnum">{loading ? "—" : items.length}</div>
-            <div className="text-2xs text-muted">
-              open{denied ? ` · ${denied} by Cedar` : ""}
-              {isMock ? " · mock" : ""}
-            </div>
-          </div>
-          <button type="button" onClick={() => void load()} disabled={loading} className="btn-ghost" aria-label="Refresh the queue">
-            <Icon name="refresh" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-        </div>
+        <button type="button" onClick={() => void load()} disabled={loading} className="btn-ghost" aria-label="Refresh the queue">
+          <Icon name="refresh" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh{isMock ? " · mock" : ""}
+        </button>
+      </div>
+
+      <div className="panel grid grid-cols-2 divide-x divide-hairline sm:grid-cols-4">
+        <Stat label="open" value={loading ? "—" : items.length} />
+        <Stat label="needs info" value={loading ? "—" : needsInfo} tone="saffron" hint="below 0.80 · one question" />
+        <Stat label="ambiguous" value={loading ? "—" : ambiguous} tone="muted" hint="two places fit" />
+        <Stat label="Cedar deny" value={loading ? "—" : denied} tone={denied ? "deny" : "muted"} hint="outreach refused" />
       </div>
 
       <div aria-live="polite" aria-atomic="true">
@@ -120,7 +121,7 @@ export default function ReviewQueue() {
       )}
 
       {!loading && items.length > 0 && (
-        <div className="panel divide-y divide-hairline" role="list">
+        <div className="panel overflow-hidden divide-y divide-hairline" role="list">
           {items.map((item) => (
             <Row key={item.order_id} item={item} open={open === item.order_id} acting={acting === item.order_id} onToggle={() => setOpen(open === item.order_id ? null : item.order_id)} onAct={act} />
           ))}
@@ -151,8 +152,9 @@ function Row({
   const panelId = `case-${item.order_id}`;
 
   return (
-    <div role="listitem" className={`transition-colors duration-fast ${open ? "bg-raised/60" : ""}`}>
-      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="grid w-full grid-cols-[1fr_auto] items-start gap-4 px-4 py-3 text-left">
+    <div role="listitem" className={`relative transition-colors duration-fast ${open ? "bg-raised/60" : ""}`}>
+      <span className={`absolute inset-y-0 left-0 w-1 ${fromCedar ? "bg-deny" : item.status === "AMBIGUOUS" ? "bg-hairline-2" : "bg-saffron"}`} aria-hidden="true" />
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="grid w-full grid-cols-[1fr_auto] items-start gap-4 py-3 pl-5 pr-4 text-left">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill status={item.status} />
@@ -173,15 +175,16 @@ function Row({
         <div className="shrink-0 text-right">
           <div className="font-mono text-base font-semibold tnum">{item.confidence?.toFixed(2) ?? "—"}</div>
           {item.clarification && (
-            <div className="mt-0.5 max-w-[16rem] truncate text-2xs text-saffron" title={item.clarification.question}>
-              "{item.clarification.question}"
+            <div className="relative mt-1 max-w-[18rem] rounded-md rounded-tr-none border border-saffron/40 bg-saffron/5 px-2 py-1 text-left text-2xs text-ink" title={item.clarification.question}>
+              <span className="eyebrow mr-1">{item.clarification.language}</span>
+              <span className="truncate">"{item.clarification.question}"</span>
             </div>
           )}
         </div>
       </button>
 
       {open && (
-        <div id={panelId} className="grid gap-5 border-t border-hairline px-4 py-4 md:grid-cols-2">
+        <div id={panelId} className="grid gap-5 border-t border-hairline py-4 pl-5 pr-4 md:grid-cols-2">
           <div>
             <div className="panel-title mb-2">Fields — edit if wrong</div>
             <div className="divide-y divide-hairline rounded-md border border-hairline bg-surface">

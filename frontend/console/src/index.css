@@ -89,6 +89,10 @@
     @apply bg-ground text-ink font-sans antialiased;
     font-size: 14px;
     line-height: 1.5;
+    /* A faint 24px grid: the DIGIPIN cell idea, as texture between panels. */
+    background-image: radial-gradient(rgb(var(--c-hairline)) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: 12px 12px;
   }
   h1, h2, h3 { text-wrap: balance; }
 
@@ -184,6 +188,19 @@
   .range:focus-visible { outline: none; }
   .range:focus-visible::-webkit-slider-thumb { outline: 2px solid rgb(var(--c-saffron)); outline-offset: 2px; }
   .range:focus-visible::-moz-range-thumb { outline: 2px solid rgb(var(--c-saffron)); outline-offset: 2px; }
+
+  /* The verdict lands like a stamp: a quick settle from slightly large. */
+  @keyframes stamp {
+    0% { transform: scale(1.12); opacity: 0; }
+    60% { transform: scale(0.98); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .stamp { animation: stamp 260ms var(--ease-settle) both; }
+
+  /* Pipeline rail states. */
+  .rail-pending { @apply border-hairline bg-raised text-muted; }
+  .rail-active { @apply border-saffron bg-saffron/10 text-saffron; }
+  .rail-done { @apply border-leaf/40 bg-leaf/10 text-leaf; }
 
   /* Verdict surfaces. */
   .verdict-allow { border-color: rgb(var(--c-leaf)); box-shadow: var(--shadow-verdict); }
