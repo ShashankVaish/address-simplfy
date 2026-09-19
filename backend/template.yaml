@@ -239,17 +239,21 @@ Resources:
     Properties:
       Name: !Sub "patasetu-data-${Stage}"
       Type: data
-      # The Lambda role always; plus the operator's own principal when given, so
-      # create_index and warm_landmarks can run from a laptop. Without that
-      # second entry every request from the CLI is a 403.
+      # Every role that touches the index (the resolver reads, the learner
+      # writes); plus the operator's own principal when given, so create_index
+      # and warm_landmarks can run from a laptop. A role missing here gets a
+      # 403 on every call -- the learner was, and reported every landmark as
+      # "not in graph" until the day it was added.
       Policy: !If
         - HasAdminPrincipal
         - !Sub
-          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${AdminPrincipalArn}"]}]'
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${LearnerRole}","${AdminPrincipalArn}"]}]'
           - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+            LearnerRole: !GetAtt LearnerFunctionRole.Arn
         - !Sub
-          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}"]}]'
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${LearnerRole}"]}]'
           - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+            LearnerRole: !GetAtt LearnerFunctionRole.Arn
 
   # --- geocoder fallback: Amazon Location Service ----------------------------
   PlaceIndex:
