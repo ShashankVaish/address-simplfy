@@ -218,7 +218,8 @@ python -m eval.learning_curve   # empty graph, fed one address at a time -> lear
 ```
 
 Results live in [`docs/results/`](./docs/results/ablation.md): the ablation
-table, the reliability diagram (raw ECE 0.217 → 0.057 cross-validated) and
+table (rows B–E measured against the deployed stack), the reliability
+diagram (raw ECE 0.235 → 0.032 cross-validated on the full system) and
 the learning curve (one confirmed delivery per locality takes graph geocoding
 from 6% to 81%).
 
