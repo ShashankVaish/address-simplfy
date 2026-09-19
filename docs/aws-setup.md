@@ -251,8 +251,11 @@ line waits for the previous one.
 ```bash
 git pull origin shashank
 sam build
-sam deploy --parameter-overrides   ServingStack=E EnableOpenSearch=true   CheapModelId=apac.amazon.nova-lite-v1:0   StrongModelId=global.anthropic.claude-sonnet-5   AdminPrincipalArn=arn:aws:iam::592404497303:user/patasetu-deploy
+sam deploy --stack-name patasetu --region ap-south-1 --resolve-s3   --capabilities CAPABILITY_IAM --no-confirm-changeset --no-fail-on-empty-changeset   --parameter-overrides     AdminPrincipalArn=arn:aws:iam::592404497303:user/patasetu-deploy     ServingStack=E EnableOpenSearch=true     CheapModelId=apac.amazon.nova-lite-v1:0     StrongModelId=global.anthropic.claude-sonnet-5
 ```
+
+Copy the whole block exactly. Do not type `...` for "the same flags" — SAM
+needs every flag every time.
 
 `sam build` now also builds three new functions (`authorizer`, `learner`,
 `clarifier`). The clarifier has its own Makefile that downloads Linux/arm64
@@ -265,9 +268,13 @@ it: that is the CloudWatch dashboard for the video.
 Then re-load the landmark graph (OpenSearch was recreated, so it is empty):
 
 ```bash
-export OPENSEARCH_ENDPOINT=<OpenSearchEndpoint from the Outputs>
+export OPENSEARCH_ENDPOINT=https://PASTE-THE-NEW-ENDPOINT-HERE.ap-south-1.aoss.amazonaws.com
 python -m scripts.create_index --load --warm
 ```
+
+The endpoint is the `OpenSearchEndpoint` line in the deploy Outputs. It is
+different every time the collection is recreated, so copy the new one. Put
+nothing after the `--warm` (no `#` comment on the same line).
 
 And run the smoke test — it now checks the Cedar DENY path too:
 
@@ -285,7 +292,7 @@ The review queue and the authorizer accept anyone by default so the demo is
 frictionless. To require a Cognito login:
 
 ```bash
-sam deploy --parameter-overrides ProtectOperatorRoutes=true
+sam deploy --stack-name patasetu --region ap-south-1 --resolve-s3   --capabilities CAPABILITY_IAM --no-confirm-changeset   --parameter-overrides AdminPrincipalArn=arn:aws:iam::592404497303:user/patasetu-deploy     ServingStack=E EnableOpenSearch=true ProtectOperatorRoutes=true
 ```
 
 Then `smoke.sh` needs a token: `export OPERATOR_TOKEN=<id token>` before
@@ -295,7 +302,7 @@ for the video.
 ### Night: same as always
 
 ```bash
-sam deploy --parameter-overrides EnableOpenSearch=false
+sam deploy --stack-name patasetu --region ap-south-1 --resolve-s3   --capabilities CAPABILITY_IAM --no-confirm-changeset --no-fail-on-empty-changeset   --parameter-overrides AdminPrincipalArn=arn:aws:iam::592404497303:user/patasetu-deploy     ServingStack=A EnableOpenSearch=false
 ```
 
 ---
