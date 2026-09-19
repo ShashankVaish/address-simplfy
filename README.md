@@ -4,6 +4,8 @@
 
 Built for **First Commit**, event 01 of the Bharat Builds Tour (WeMakeDevs × AWS), 17–20 September 2026.
 
+**Live:** [operations console](https://shashank.d1oa7awydlkizq.amplifyapp.com) · API `https://ird392iw6j.execute-api.ap-south-1.amazonaws.com/dev` (public playground, rate-limited)
+
 ---
 
 ## The problem
