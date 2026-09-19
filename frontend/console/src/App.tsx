@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { health, isMock } from "./api/client";
 import type { HealthResponse } from "./api/types";
-import { Icon } from "./components/ui";
+import { Icon, Logo } from "./components/ui";
 import { useTheme } from "./hooks/useTheme";
 import Guardrails from "./pages/Guardrails";
 import Playground from "./pages/Playground";
@@ -38,7 +38,8 @@ export default function App() {
       </a>
       <header className="sticky top-0 z-sticky border-b border-hairline bg-ground/85 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-6">
-          <a href="https://main.d16dqxnda3ut4f.amplifyapp.com/" className="flex items-baseline gap-2 no-underline" title="PataSetu — about the project">
+          <a href="https://main.d16dqxnda3ut4f.amplifyapp.com/" className="flex items-center gap-2.5 no-underline" title="PataSetu — about the project">
+            <Logo />
             <span className="text-md font-extrabold tracking-tight text-ink">PataSetu</span>
             <span className="hidden text-xs text-muted sm:inline">address resolution for India</span>
           </a>

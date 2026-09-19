@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="PataSetu — address resolution for India. Messy address in; structured fields, coordinate, DIGIPIN and a calibrated confidence out. Built on AWS for First Commit.">
 <title>PataSetu — address resolution for India</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyOCAyOCIgd2lkdGg9IjI4IiBoZWlnaHQ9IjI4Ij48cmVjdCB3aWR0aD0iMjgiIGhlaWdodD0iMjgiIHJ4PSI3IiBmaWxsPSIjMTExODI3Ii8+PHBhdGggZD0iTTYuNSAxOS41QzkuNSA5LjUgMTguNSA5LjUgMjEuNSAxOS41IiBmaWxsPSJub25lIiBzdHJva2U9IiNlODdkMWUiIHN0cm9rZS13aWR0aD0iMi42IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cGF0aCBkPSJNNi41IDE5LjV2Mi41TTIxLjUgMTkuNXYyLjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2U4N2QxZSIgc3Ryb2tlLXdpZHRoPSIyLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxjaXJjbGUgY3g9IjYuNSIgY3k9IjE5LjUiIHI9IjIuNCIgZmlsbD0iI2Y2ZjFlNyIvPjxjaXJjbGUgY3g9IjIxLjUiIGN5PSIxOS41IiByPSIyLjYiIGZpbGw9IiMzZmE2NmYiLz48L3N2Zz4=">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
@@ -105,7 +106,8 @@
     border-bottom: 1px solid var(--rule);
   }
   .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; }
-  .brand { display: flex; align-items: baseline; gap: 10px; text-decoration: none; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand span { align-self: baseline; }
   .brand b { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
   .brand span { font-size: 12px; color: var(--muted); }
   .nav { display: flex; gap: 4px; }
@@ -351,7 +353,7 @@
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="#top"><b>PataSetu</b><span>address resolution for India</span></a>
+    <a class="brand" href="#top"><svg viewBox="0 0 28 28" width="26" height="26" aria-hidden="true" style="flex:none"><rect width="28" height="28" rx="7" fill="var(--ink)"/><path d="M6.5 19.5C9.5 9.5 18.5 9.5 21.5 19.5" fill="none" stroke="var(--saffron)" stroke-width="2.6" stroke-linecap="round"/><path d="M6.5 19.5v2.5M21.5 19.5v2.5" fill="none" stroke="var(--saffron)" stroke-width="2.6" stroke-linecap="round"/><circle cx="6.5" cy="19.5" r="2.4" fill="var(--ground)"/><circle cx="21.5" cy="19.5" r="2.6" fill="var(--leaf)"/></svg><b>PataSetu</b><span>address resolution for India</span></a>
     <nav class="nav" aria-label="Sections">
       <a href="#how">How it works</a>
       <a href="#different">What's different</a>
