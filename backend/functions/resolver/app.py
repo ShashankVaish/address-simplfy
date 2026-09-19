@@ -52,6 +52,8 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 _COLD_START = time.perf_counter()
 CONFIG = load_config()
 CALIBRATOR = Calibrator.load()
+# Which ablation stack the deployed API serves (A on Day 1, E from Day 2).
+SERVING_STACK = Stack(os.environ.get("SERVING_STACK", "A"))
 _WARMED = gazetteer.warm()
 PROVIDERS = Providers(CONFIG)
 # Level 1 and 2 of the cache. The store is DynamoDB in aws mode and a dict in
@@ -66,6 +68,7 @@ CACHE = ResolutionCache(
     # call on every request, *before* we know whether the cache will hit -- so
     # in aws mode the probe is exact-hash only until the hit rate justifies it.
     embedder=PROVIDERS.embedder if CONFIG.is_local else None,
+    namespace=f"{SERVING_STACK.value}:{CALIBRATOR.fingerprint}",
 )
 _INIT_MS = (time.perf_counter() - _COLD_START) * 1000.0
 
@@ -80,10 +83,6 @@ logger.info(
         }
     )
 )
-
-# Which ablation stack the deployed API serves. Day 1 ships A; Day 2 moves this
-# to E once S2 and S3 are wired.
-SERVING_STACK = Stack(os.environ.get("SERVING_STACK", "A"))
 
 _CORS = {
     "Content-Type": "application/json",
