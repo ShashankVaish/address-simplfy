@@ -430,6 +430,29 @@ the order so the console shows which path ran. A customer waiting for a
 question should never see a stack trace, and an evaluation should never be
 fooled into crediting the agent for a template.
 
+### Two bugs that only a live event could find
+
+Every Lambda had unit tests and every deploy said green. Then we fired one
+real `DeliveryConfirmed` and one real `AddressNeedsInfo` at the deployed
+stack and watched the logs.
+
+- **The clarifier fell back to the template every time.** The Strands agent
+  streams from Bedrock, which needs `bedrock:InvokeModelWithResponseStream`;
+  the function's policy granted only `InvokeModel` and `Converse*`. The
+  fallback worked exactly as designed — a customer would never have noticed —
+  which is precisely why nobody would have noticed. The fix was one IAM
+  line; the real fix was logging *why* a fallback happened.
+- **The learner reported every landmark as "not in graph".** OpenSearch
+  Serverless has its own data-access policy separate from IAM, and it listed
+  only the resolver's role. The learner's reads were 403s, and `get()`
+  turned any exception into `None` — so "forbidden" looked like "absent".
+  Now the role is in the policy and `get()` raises; a permission error must
+  never impersonate a missing record.
+
+Both fixes took minutes. Finding them took firing the real event. The rule
+we take away: for every asynchronous consumer, one live invocation with the
+logs open, before calling it done.
+
 ### Smaller notes
 
 - The Cedar context passes confidence as an **integer percentage**. Cedar has
