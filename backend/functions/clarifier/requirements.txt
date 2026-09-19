@@ -1,0 +1,3 @@
+# The clarifier has its own dependencies: Strands is large (uvicorn, otel,
+# mcp) and does not belong in the hot-path layer.
+strands-agents>=1.0

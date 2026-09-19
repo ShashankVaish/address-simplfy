@@ -94,8 +94,17 @@ class Models:
     cheap: str = "amazon.nova-lite-v1:0"
     # Escalation target: low per-field confidence, a conflict with the
     # deterministic parse, multi-script input, or non-empty alternatives.
-    strong: str = "claude-opus-5"
+    # Sonnet 5 rather than Opus 5: the task is choosing a landmark id from a
+    # short list and filling two or three fields, which does not need the top
+    # tier, and it is 2.5x cheaper per call. On a $100 credit the whole event's
+    # escalations cost a few dollars either way -- OpenSearch hours are the
+    # budget risk, not tokens -- but there is no reason to spend the extra.
+    strong: str = "anthropic.claude-sonnet-5"
     embedding: str = "amazon.titan-embed-text-v2:0"
+    # Build It fallback: the Ollama tag served locally. Reached over HTTP on
+    # localhost, so it needs no credentials and no network.
+    local_model: str = "llama3.2"
+    local_endpoint: str = "http://127.0.0.1:11434"
     # One retry on invalid JSON with a stricter reminder, then give up and fall
     # back to the deterministic result. Never loop on a model.
     json_retries: int = 1
@@ -112,6 +121,8 @@ class Config:
     bucket_name: str
     opensearch_endpoint: str
     landmark_index: str
+    # Amazon Location Service place index, for the S4 geocoder fallback.
+    place_index: str
     event_bus: str
     # Cache lifetime. Long, because a resolved doorstep does not move.
     cache_ttl_days: int
@@ -144,6 +155,7 @@ def load() -> Config:
         bucket_name=_env("BUCKET_NAME", ""),
         opensearch_endpoint=_env("OPENSEARCH_ENDPOINT", ""),
         landmark_index=_env("LANDMARK_INDEX", "landmarks"),
+        place_index=_env("PLACE_INDEX", "patasetu-places"),
         event_bus=_env("EVENT_BUS", "patasetu"),
         cache_ttl_days=_env_int("CACHE_TTL_DAYS", 90),
         log_level=_env("LOG_LEVEL", "INFO"),
@@ -160,16 +172,40 @@ def load() -> Config:
         ),
         models=Models(
             cheap=_env("MODEL_CHEAP", "amazon.nova-lite-v1:0"),
-            strong=_env("MODEL_STRONG", "claude-opus-5"),
+            strong=_env("MODEL_STRONG", "anthropic.claude-sonnet-5"),
             embedding=_env("MODEL_EMBEDDING", "amazon.titan-embed-text-v2:0"),
+            local_model=_env("LOCAL_MODEL", "llama3.2"),
+            local_endpoint=_env("LOCAL_ENDPOINT", "http://127.0.0.1:11434"),
         ),
     )
 
 
-# Repository-relative data paths. Resolved from this file so that scripts, the
-# test suite and a Lambda layer all find the same files.
+# Data file locations. Three places are tried, in order:
+#
+#   1. $DATA_DIR                      explicit override
+#   2. <package>/data                 inside the Lambda layer (/opt/python/
+#                                     patasetu/data), populated by
+#                                     scripts/prepare_layer.py before `sam build`
+#   3. backend/data                   the repository, for scripts and tests
+#
+# Order 2 before 3 matters: in a Lambda the repository path does not exist, and
+# resolving it would point at /data, which fails on the first request rather
+# than at import -- the worst possible time.
 _HERE: Final = os.path.dirname(os.path.abspath(__file__))
-# layers/common/python/patasetu -> backend/
 _BACKEND_ROOT: Final = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-DATA_DIR: Final = os.path.join(_BACKEND_ROOT, "data")
+
+
+def _find_data_dir() -> str:
+    explicit = os.environ.get("DATA_DIR")
+    if explicit:
+        return explicit
+    packaged = os.path.join(_HERE, "data")
+    if os.path.isfile(os.path.join(packaged, "pincodes.csv")):
+        return packaged
+    return os.path.join(_BACKEND_ROOT, "data")
+
+
+DATA_DIR: Final = _find_data_dir()
 EVAL_DATA_DIR: Final = os.path.join(_BACKEND_ROOT, "eval", "data")
+# Prompts ship inside the package so the layer always carries them.
+PROMPT_DIR: Final = os.path.join(_HERE, "prompts")

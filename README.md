@@ -51,7 +51,7 @@ POST /v1/resolve
     ]
   },
   "geo": { "lat": 28.65213, "lng": 77.11987, "source": "landmark_graph" },
-  "digipin": "39J-49L-L8T4",
+  "digipin": "39JJTT4565",
   "evidence": [
     "pincode 110015 matched locality 'Ramesh Nagar' (exact)",
     "landmark 'Shiv Mandir' matched LMK#DL#4412 at 63m (vector 0.89)"
@@ -67,6 +67,8 @@ POST /v1/resolve
 ### 1. DIGIPIN as the canonical output
 
 DIGIPIN is India Post's open-source national addressing grid, built with IIT Hyderabad and ISRO's NRSC. It divides the country into roughly 4 m × 4 m cells and assigns each a unique 10-character alphanumeric code derived from its latitude and longitude. It was finalised in March 2025 as the foundation layer of India's addressing Digital Public Infrastructure.
+
+> **Format note.** The canonical DIGIPIN is a **continuous 10-character string with no hyphens** — the official India Post encoder (`INDIAPOST-gov/digipin`, revision 2026-05-04) dropped the `XXX-XXX-XXXX` separators and its decoder now *rejects* them. We store and transmit `39JJTT4565`; the hyphenated `39J-JTT-4565` is a display-only form produced by `format_digipin`. Most third-party write-ups still show the old format.
 
 Two engineering consequences:
 
@@ -144,28 +146,46 @@ git clone <repo> && cd patasetu
 # Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env          # set PROVIDER=local for offline mode
+pip install -r requirements-dev.txt
+export PROVIDER=local          # everything below runs with no cloud at all
+
+# Data: the gazetteer is built from the All-India Pincode Directory (23 MB,
+# not committed). One download, then everything is reproducible.
+curl -sL -o data/pincode_raw.csv \
+  https://raw.githubusercontent.com/harshvardhaniimi/IndiaPIN/main/data-raw/pincode.csv
+python -m scripts.build_gazetteer --src data/pincode_raw.csv
+python -m scripts.build_seeds --n 120
+python -m eval.corpus_gen --n 2000
+python -m scripts.make_gold --n 300
+python -m scripts.warm_landmarks                 # cold landmark graph
+python -m scripts.warm_landmarks --observations --out eval/data/landmarks_warm.jsonl
 
 # Verify the DIGIPIN encoder before anything else
 pytest tests/test_digipin.py -v
 
-# Run the pipeline on a single address, no cloud needed
+# Run the pipeline on a single address
 python -m scripts.resolve_one "h no 14 behind shiv mandir ramesh nagar delhi 110015"
+python -m scripts.resolve_one --stack R2 "..."   # with in-process retrieval
 
-# Full local stack
-docker compose up -d           # OpenSearch + LocalStack
-sam local start-api --env-vars env.json
+# The whole suite: 376 tests, no network
+pytest
 ```
 
 ### Deploy
 
 ```bash
 cd backend
+python -m scripts.prepare_layer   # copies the gazetteer into the Lambda layer
 sam build
-sam deploy --guided            # first time only
-sam deploy                     # subsequent
+sam deploy --guided               # first time only
+sam deploy                        # subsequent
+
+./scripts/smoke.sh                # after EVERY deploy
+python -m scripts.create_index --load --warm   # OpenSearch: create + bulk-load
 ```
+
+`EnableOpenSearch=false` on a deploy tears the collection down overnight (it
+bills by the hour, idle or not); the rest of the stack is untouched.
 
 Note the API URL from the stack outputs, then:
 
@@ -179,22 +199,38 @@ npm run build                  # Amplify picks this up on push
 
 ### Seed data
 
-```bash
-cd backend
-python -m eval.corpus_gen --seeds data/seed_addresses.jsonl --out data/corpus.jsonl --n 2000
-python -m scripts.load_pincodes data/pincodes.csv
-python -m scripts.warm_landmarks data/corpus.jsonl
-```
+See the local-development block above: seeds, corpus, gold splits and the
+landmark graph are all built by the scripts under `scripts/` and `eval/`.
 
 ---
 
 ## Evaluation
 
 ```bash
-python -m eval.run_ablation --split dev     # iterate against this
-python -m eval.run_ablation --split test    # ONCE, at the end
-python -m eval.reliability --split dev      # produces the calibration plot
+python -m eval.run_ablation --split dev --stacks A R1 R2     # no model needed
+python -m eval.run_ablation --split dev --stacks B C D E     # needs Bedrock or Ollama
+python -m eval.run_ablation --split test --stacks A B C D E  # ONCE, at the end
 ```
+
+```bash
+python -m eval.reliability      # isotonic calibration -> data/calibration.json + reliability.svg
+python -m eval.learning_curve   # empty graph, fed one address at a time -> learning_curve.svg
+```
+
+Results live in [`docs/results/`](./docs/results/ablation.md): the ablation
+table on both the dev and the held-out **test** split (rows B–E measured
+against the deployed stack), a targets-versus-actuals table that says which
+targets were missed, the reliability diagram (raw ECE 0.235 → 0.032
+cross-validated on the full system) and the learning curve (one confirmed
+delivery per locality takes graph geocoding from 6% to 81%). The short
+version: retrieval takes the median geocode error from 491–969 m to **0 m**
+on both splits; the field-extraction targets are not met, and the page says
+why.
+
+`R1`/`R2` are diagnostic rows — retrieval with no LLM — that isolate what S2
+contributes to geocoding. Configurations that cannot run report **NOT RUN**
+with the reason; the table is never filled with a weaker configuration's
+numbers.
 
 Targets:
 
@@ -209,6 +245,13 @@ Targets:
 | p95 latency | < 1.2 s |
 
 ---
+
+## Running it on your laptop
+
+Step-by-step guides, no AWS needed:
+[Windows](docs/run-backend.md) · [Mac](docs/run-backend-mac.md) ·
+[AWS setup for the deploy](docs/aws-setup.md) ·
+[How it works, in plain language](docs/how-it-works.md)
 
 ## Repository layout
 
@@ -226,7 +269,10 @@ See [TASKS.md](./TASKS.md).
 
 ## Limitations — stated openly
 
-- Evaluated on a synthetic corpus seeded from ~120 consented real addresses, **not** on production courier data. Every reported number is measured against our own labelled gold set.
+- Evaluated on a corpus generated from **120 real, publicly listed addresses** (India Post's All-India Pincode Directory — real localities, real pincodes, published coordinates, no personal data), **not** on production courier data. Those seed addresses are *better formed* than real landmark addresses; all the mess is introduced by `corpus_gen.py`, which labels what it perturbed.
+- Gold-set labels are **derived** from the source directory, not hand-typed. They are verifiable rather than guessed, but they inherit any error in the source; `eval/label_tool.py` exists for the human pass, and the count of verified rows travels with every reported number.
+- The landmark graph was warmed from the same directory the addresses came from. A 0 m median geocode error says the graph works *when it knows the place*, not that it knows every place.
+- In local mode the vector signal is a character-trigram hashing embedder, not Titan; local retrieval numbers are a lower bound on the cloud configuration.
 - The landmark graph is warmed only for localities in our corpus. Cold localities perform closer to the baseline configuration.
 - Indic-script coverage is tested for Hindi and Devanagari transliteration. Other scripts are structurally supported but unmeasured.
 - Phone numbers are stripped at stage S1 and never embedded or sent to a model. No PII is retained beyond the demo dataset.

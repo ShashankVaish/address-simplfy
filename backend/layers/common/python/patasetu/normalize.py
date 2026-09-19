@@ -315,6 +315,36 @@ def expand_abbreviations(text: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Delivery chatter
+# --------------------------------------------------------------------------
+
+# Instructions customers append that are not part of the address. Kept out of
+# the embedding text because they are pure noise that dilutes every vector.
+_CHATTER_RE: Final = re.compile(
+    r"\b(?:"
+    r"call (?:me |us )?(?:before|b4) (?:coming|delivery|deliver)"
+    r"|please call|pls call|plz call|call krke aana|call karke aana"
+    r"|ring the bell|ring bell|dont call|do not call"
+    r"|deliver (?:after|before) \d{1,2}\s*(?:am|pm)?"
+    r"|available (?:after|before) \d{1,2}\s*(?:am|pm)?"
+    r"|leave (?:it )?(?:with|at) (?:the )?(?:guard|security|watchman|neighbour)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def strip_chatter(text: str) -> str:
+    """Remove delivery instructions that are not part of the address.
+
+    Done in S0, not S1, on purpose. "call before coming" is noise that varies
+    between two submissions of the *same* address; stripping it before the
+    cache key is computed turns those into exact cache hits instead of two
+    pipeline runs. It also keeps the noise out of the embedding text.
+    """
+    return _MULTISPACE.sub(" ", _CHATTER_RE.sub(" ", text)).strip()
+
+
+# --------------------------------------------------------------------------
 # Folding
 # --------------------------------------------------------------------------
 
@@ -379,7 +409,7 @@ def normalise(raw: str) -> Normalised:
     call. Near-duplicate addresses are the norm in any real city corpus, so this
     is the largest cost lever in the system.
     """
-    folded = fold(raw)
+    folded = strip_chatter(fold(raw))
 
     scripts = detect_scripts(folded)
     if "devanagari" in scripts:

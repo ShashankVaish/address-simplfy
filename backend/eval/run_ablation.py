@@ -22,10 +22,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "layers/common/python"))
 
+from scripts.warm_landmarks import load_landmarks
+
 from eval.metrics import evaluate, format_report
 from patasetu import gazetteer
 from patasetu.config import load as load_config
 from patasetu.pipeline import Stack, StageUnavailable, resolve
+from patasetu.providers import Providers
 
 STACK_LABELS: dict[str, str] = {
     "A": "Deterministic regex + gazetteer only",
@@ -33,7 +36,37 @@ STACK_LABELS: dict[str, str] = {
     "C": "B + BM25 landmark retrieval",
     "D": "C + vector retrieval + geo filter",
     "E": "D + warmed landmark graph (full system)",
+    # Diagnostics. Not in the judged table; measurable without a model.
+    "R1": "A + BM25 landmark retrieval, no LLM",
+    "R2": "A + hybrid retrieval (BM25 + vector + geo), no LLM",
 }
+
+JUDGED = ("A", "B", "C", "D", "E")
+DIAGNOSTIC = ("R1", "R2")
+
+
+def build_providers(stack: Stack, data_dir: Path) -> Providers:
+    """Providers for a stack, with the landmark index loaded when needed.
+
+    In local mode the index is in-process, so it is loaded here from the file
+    `warm_landmarks.py` wrote. Configuration E gets the *warm* file, whose
+    observation counts were seeded from corpus mentions -- the provenance of
+    that warmth is recorded on the records themselves and named in the table.
+    """
+    cfg = load_config()
+    providers = Providers(cfg)
+    if not stack.uses_retrieval or not cfg.is_local:
+        return providers
+
+    name = "landmarks_warm.jsonl" if stack is Stack.E_WARM_GRAPH else "landmarks.jsonl"
+    path = data_dir / name
+    if not path.exists():
+        raise StageUnavailable(
+            f"{path} not found; run `python -m scripts.warm_landmarks`"
+            + (" --observations" if stack is Stack.E_WARM_GRAPH else "")
+        )
+    providers.search.upsert(load_landmarks(path))
+    return providers
 
 
 def load_split(path: Path) -> list[dict[str, Any]]:
@@ -48,15 +81,19 @@ def truth_for(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_stack(
-    stack: Stack, rows: list[dict[str, Any]], threshold: float
+    stack: Stack, rows: list[dict[str, Any]], threshold: float, data_dir: Path
 ) -> tuple[dict[str, Any] | None, str]:
     cfg = load_config()
+    try:
+        providers = build_providers(stack, data_dir)
+    except StageUnavailable as exc:
+        return None, str(exc)
     predictions: list[dict[str, Any]] = []
 
     start = time.perf_counter()
     for row in rows:
         try:
-            result = resolve(row["raw"], stack=stack, cfg=cfg)
+            result = resolve(row["raw"], stack=stack, cfg=cfg, providers=providers)
         except StageUnavailable as exc:
             return None, str(exc)
         predictions.append(result.model_dump(mode="json"))
@@ -69,6 +106,8 @@ def run_stack(
     row_out = m.as_row()
     row_out["stack"] = stack.value
     row_out["label"] = STACK_LABELS[stack.value]
+    row_out["provider"] = cfg.provider
+    row_out["index_size"] = providers.search.count() if stack.uses_retrieval else 0
     row_out["wall_ms_total"] = round(wall_ms, 1)
     row_out["wall_ms_per_address"] = round(wall_ms / max(1, len(rows)), 3)
     row_out["latency_p50_ms"] = m.latency_p50_ms
@@ -93,21 +132,39 @@ def write_markdown(results: list[dict[str, Any]], split: str, out: Path) -> None
         "| Config | What it is | Field F1 | Exact match | Geo median | Auto-resolve | Clarify | P@thresh |",
         "|---|---|---|---|---|---|---|---|",
     ]
-    for key in ("A", "B", "C", "D", "E"):
+
+    def table_row(key: str) -> str:
         label = STACK_LABELS[key]
         r = by_stack.get(key)
         if r is None:
-            lines.append(f"| **{key}** | {label} | -- | -- | -- | -- | -- | -- |")
-            continue
+            return f"| **{key}** | {label} | -- | -- | -- | -- | -- | -- |"
         geo = f"{r['geo_median_m']:,.0f} m" if r["geo_median_m"] is not None else "--"
-        lines.append(
+        return (
             f"| **{key}** | {label} | {r['field_f1']:.3f} | {r['exact_match']:.3f} "
             f"| {geo} | {r['auto_resolution_rate']:.1%} "
             f"| {r['clarification_rate']:.1%} | {r['precision_at_threshold']:.3f} |"
         )
 
+    lines += [table_row(k) for k in JUDGED]
+
+    if any(k in by_stack for k in DIAGNOSTIC):
+        provider = next(iter(by_stack.values())).get("provider", "?")
+        lines += [
+            "",
+            "## Diagnostics: retrieval without a model",
+            "",
+            f"Measured with `PROVIDER={provider}`. In local mode the vector signal is a",
+            "character-trigram hashing embedder, not Titan, so these are a **lower",
+            "bound** on the cloud configuration. They isolate what S2 contributes to",
+            "geocoding, independently of what S3 contributes to field extraction.",
+            "",
+            "| Config | What it is | Field F1 | Exact match | Geo median | Auto-resolve | Clarify | P@thresh |",
+            "|---|---|---|---|---|---|---|---|",
+            *[table_row(k) for k in DIAGNOSTIC],
+        ]
+
     lines += ["", "## Notes", ""]
-    for key in ("A", "B", "C", "D", "E"):
+    for key in (*JUDGED, *DIAGNOSTIC):
         r = by_stack.get(key)
         if r is None:
             continue
@@ -127,10 +184,16 @@ def main() -> int:
     ap.add_argument("--split", choices=("dev", "test"), default="dev")
     ap.add_argument("--stacks", nargs="+", default=["A"], choices=list(STACK_LABELS))
     ap.add_argument("--data-dir", type=Path, default=Path("eval/data"))
-    ap.add_argument("--out", type=Path, default=Path("../docs/results/ablation.md"))
-    ap.add_argument("--json-out", type=Path, default=Path("eval/data/ablation.json"))
+    # Per-split outputs, so a test-split run never overwrites the dev-split
+    # page. docs/results/ablation.md is the hand-written summary of both.
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--json-out", type=Path, default=None)
     ap.add_argument("--threshold", type=float, default=None)
     args = ap.parse_args()
+    if args.out is None:
+        args.out = Path(f"../docs/results/ablation_{args.split}.md")
+    if args.json_out is None:
+        args.json_out = Path(f"eval/data/ablation_{args.split}.json")
 
     path = args.data_dir / f"gold_{args.split}.jsonl"
     if not path.exists():
@@ -156,7 +219,7 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     for name in args.stacks:
         stack = Stack(name)
-        row, report = run_stack(stack, rows, threshold)
+        row, report = run_stack(stack, rows, threshold, args.data_dir)
         print(report)
         print()
         if row is None:
@@ -164,6 +227,20 @@ def main() -> int:
             print()
             continue
         results.append(row)
+
+    # Merge with previously recorded rows so a run of only the diagnostics does
+    # not erase configuration A from the table.
+    if results and args.json_out.exists():
+        try:
+            previous = json.loads(args.json_out.read_text(encoding="utf-8"))
+            if previous.get("split") == args.split:
+                fresh = {r["stack"] for r in results}
+                results = [
+                    r for r in previous.get("rows", []) if r["stack"] not in fresh
+                ] + results
+                results.sort(key=lambda r: (r["stack"] in DIAGNOSTIC, r["stack"]))
+        except (ValueError, KeyError):
+            pass
 
     if results:
         write_markdown(results, args.split, args.out)

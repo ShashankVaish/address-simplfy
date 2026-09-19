@@ -45,6 +45,10 @@ backend/
 │           ├── config.py        # env vars, thresholds, model ids in ONE place
 │           ├── models.py        # Pydantic: Address, Landmark, Resolution, Evidence
 │           │
+│           ├── gazetteer.py     # 19k pincodes + 157k locality names; S1 parses against it
+│           ├── embeddings.py    # Titan v2 (aws) / trigram hashing (local)
+│           ├── prompts/         # structure.txt lives IN the package so the layer ships it
+│           ├── data/            # gitignored; scripts/prepare_layer.py copies backend/data here
 │           ├── digipin.py       # ★ vendored official encoder. DO NOT hand-roll
 │           ├── normalize.py     # S0 — unicode fold, translit, abbreviations
 │           ├── parse.py         # S1 — regex, gazetteer, phone stripping
@@ -65,13 +69,10 @@ backend/
 │   ├── resolver/                # POST /v1/resolve — THE HOT PATH
 │   │   ├── app.py
 │   │   └── requirements.txt
-│   ├── clarifier/               # Strands agent — question generation
+│   ├── clarifier/               # Strands agent — question generation (Day 3)
 │   │   ├── app.py
-│   │   ├── agent.py             # Strands Agent definition + tools
-│   │   └── prompts/
-│   │       ├── structure.txt    # the five rules (see ARCHITECTURE §S3)
-│   │       ├── question.txt
-│   │       └── voice_extract.txt
+│   │   └── agent.py             # Strands Agent definition + tools
+│   │                            # (prompts moved into the layer: patasetu/prompts/)
 │   ├── authorizer/              # Cedar decision endpoint
 │   │   ├── app.py
 │   │   └── policies/

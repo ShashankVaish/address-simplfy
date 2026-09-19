@@ -1,0 +1,9 @@
+# Installed into the layer by layers/common/Makefile with Linux/arm64 wheels.
+# boto3 is deliberately absent: the Lambda runtime already provides it, and
+# shipping a second copy adds ~80 MB to the layer for nothing.
+pydantic>=2.9,<3
+opensearch-py>=2.4
+requests>=2.32
+requests-aws4auth>=1.2
+cedarpy>=4.0
+PyJWT[crypto]>=2.9

@@ -21,6 +21,7 @@ from typing import Final
 
 from patasetu import gazetteer
 from patasetu.models import Relation
+from patasetu.normalize import strip_chatter
 
 # --------------------------------------------------------------------------
 # Phone numbers -- removed first, before any other parsing
@@ -45,20 +46,6 @@ _PHONE_RE: Final = re.compile(
 # Digits split by separators: "98765 43210", "98765-43210".
 _SPACED_PHONE_RE: Final = re.compile(
     r"(?<!\d)(?:\+?91[\s.\-]?)?[6-9]\d{4}[\s.\-]\d{5}(?!\d)"
-)
-
-# Instructions customers append that are not part of the address. Kept out of
-# the embedding text because they are pure noise that dilutes every vector.
-_CHATTER_RE: Final = re.compile(
-    r"\b(?:"
-    r"call (?:me |us )?(?:before|b4) (?:coming|delivery|deliver)"
-    r"|please call|pls call|plz call|call krke aana|call karke aana"
-    r"|ring the bell|ring bell|dont call|do not call"
-    r"|deliver (?:after|before) \d{1,2}\s*(?:am|pm)?"
-    r"|available (?:after|before) \d{1,2}\s*(?:am|pm)?"
-    r"|leave (?:it )?(?:with|at) (?:the )?(?:guard|security|watchman|neighbour)"
-    r")\b",
-    re.IGNORECASE,
 )
 
 # --------------------------------------------------------------------------
@@ -162,7 +149,7 @@ _RELATION_WORDS: Final[dict[str, Relation]] = {
 _LANDMARK_STOP: Final = re.compile(
     r"\b(?:"
     + "|".join(re.escape(w) for w in sorted(_RELATION_WORDS, key=len, reverse=True))
-    + r"|post office|police station|district|tehsil|taluka|pincode|pin"
+    + r"|post office|post ophis|post ofis|police station|district|tehsil|taluka|pincode|pin"
     + r"|house number|flat|block|sector|phase|floor|tower"
     + r")\b",
     re.IGNORECASE,
@@ -301,11 +288,6 @@ def strip_phones(text: str) -> tuple[str, list[str]]:
     return re.sub(r"\s+", " ", cleaned).strip(), found
 
 
-def strip_chatter(text: str) -> str:
-    """Remove delivery instructions that are not part of the address."""
-    return re.sub(r"\s+", " ", _CHATTER_RE.sub(" ", text)).strip()
-
-
 def _first_group(m: re.Match[str] | None) -> str | None:
     if m is None:
         return None
@@ -344,6 +326,27 @@ def _trim_trailing_places(name: str, place_names: frozenset[str]) -> str:
     return " ".join(words)
 
 
+# Tokens that are never part of a landmark's *name*: a pincode, a bare number,
+# and the "post office" suffix (in either script's transliteration). Stripped
+# from both ends of a captured phrase. A phrase reduced to nothing by this is
+# not a landmark at all.
+_POSTAL_JARGON = r"post\s+(?:office|ophis|ofis|aphis|afis)|post office|po|p\.o\.?"
+_PHRASE_TRIM_RE = re.compile(
+    rf"^(?:\s*(?:\d{{3,}}|{_POSTAL_JARGON}))+\s*"
+    rf"|\s*(?:(?:\d{{3,}}|{_POSTAL_JARGON})\s*)+$",
+    re.IGNORECASE,
+)
+
+
+def clean_landmark_phrase(phrase: str) -> str:
+    """Strip numbers and postal jargon from the ends of a landmark phrase."""
+    previous = None
+    while previous != phrase:
+        previous = phrase
+        phrase = _PHRASE_TRIM_RE.sub("", phrase).strip(" ,.-")
+    return phrase
+
+
 def extract_landmarks(
     text: str, place_names: frozenset[str] = frozenset()
 ) -> list[tuple[str, Relation]]:
@@ -368,7 +371,8 @@ def extract_landmarks(
     seen: set[str] = set()
 
     def add(name: str, relation: Relation) -> None:
-        name = _trim_trailing_places(name.strip(" ,.-"), place_names)
+        name = clean_landmark_phrase(name)
+        name = _trim_trailing_places(name, place_names)
         if len(name) < 3 or name.casefold() in _WEAK_LANDMARKS:
             return
         if not re.search(r"[a-zऀ-ॿ]{3}", name, re.IGNORECASE):
@@ -388,10 +392,20 @@ def extract_landmarks(
         head = text[: m.start()]
         # Take the last few words before the postposition.
         words = head.split()
-        # Cut at the previous relation word or separator if there is one.
+        # Cut at the previous relation word, stop token, or six-digit pincode:
+        # a landmark name never contains a pincode, and without this cut the
+        # phrase "752034 baulabanadh ke paas" captures the pincode.
         for i in range(len(words) - 1, -1, -1):
-            if _LANDMARK_STOP.fullmatch(words[i]) or words[i] in _RELATION_WORDS:
-                words = words[i + 1 :]
+            pair = " ".join(words[i : i + 2])
+            if (
+                _LANDMARK_STOP.fullmatch(words[i])
+                or _LANDMARK_STOP.fullmatch(pair)
+                or words[i] in _RELATION_WORDS
+                or re.fullmatch(r"\d{6}", words[i])
+            ):
+                # A two-word stop ("post office") removes both words.
+                cut = i + 2 if _LANDMARK_STOP.fullmatch(pair) else i + 1
+                words = words[cut:]
                 break
         add(" ".join(words[-4:]), relation)
         consumed.append((m.start(), m.end()))

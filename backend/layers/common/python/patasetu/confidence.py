@@ -49,7 +49,7 @@ _FIELD_VALUE: dict[str, float] = {
     "state": 0.03,
 }
 
-_GEO_TIER: dict[GeoSource, float] = {
+GEO_TIER: dict[GeoSource, float] = {
     GeoSource.LANDMARK_GRAPH: 1.0,
     GeoSource.GEOCODER: 0.7,
     GeoSource.PINCODE_CENTROID: 0.3,
@@ -152,6 +152,17 @@ class Calibrator:
     @property
     def is_fitted(self) -> bool:
         return bool(self.knots)
+
+    @property
+    def fingerprint(self) -> str:
+        """Short stable id of the fitted map; "identity" when unfitted."""
+        if not self.knots:
+            return "identity"
+        import hashlib
+        import json
+
+        digest = hashlib.sha256(json.dumps(self.knots).encode()).hexdigest()
+        return digest[:12]
 
     def __call__(self, raw: float) -> float:
         if not self.knots:

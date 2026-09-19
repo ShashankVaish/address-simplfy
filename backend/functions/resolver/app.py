@@ -36,11 +36,13 @@ if os.path.isdir(
 
 from pydantic import ValidationError
 
-from patasetu import gazetteer
+from patasetu import gazetteer, metrics, store
+from patasetu.cache import ResolutionCache
 from patasetu.confidence import Calibrator
 from patasetu.config import load as load_config
 from patasetu.models import ResolveRequest
 from patasetu.pipeline import Stack, StageUnavailable, resolve
+from patasetu.providers import Providers
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -50,7 +52,24 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 _COLD_START = time.perf_counter()
 CONFIG = load_config()
 CALIBRATOR = Calibrator.load()
+# Which ablation stack the deployed API serves (A on Day 1, E from Day 2).
+SERVING_STACK = Stack(os.environ.get("SERVING_STACK", "A"))
 _WARMED = gazetteer.warm()
+PROVIDERS = Providers(CONFIG)
+# Level 1 and 2 of the cache. The store is DynamoDB in aws mode and a dict in
+# local mode; the near-duplicate vector index lives in this container either
+# way, because a kNN round trip to find a cache entry would cost more than the
+# pipeline run it saves.
+CACHE = ResolutionCache(
+    PROVIDERS.store,
+    ttl_days=CONFIG.cache_ttl_days,
+    # Near-duplicate lookup needs an embedding of every incoming address. With
+    # the local hashing embedder that is free; with Titan it is a paid Bedrock
+    # call on every request, *before* we know whether the cache will hit -- so
+    # in aws mode the probe is exact-hash only until the hit rate justifies it.
+    embedder=PROVIDERS.embedder if CONFIG.is_local else None,
+    namespace=f"{SERVING_STACK.value}:{CALIBRATOR.fingerprint}",
+)
 _INIT_MS = (time.perf_counter() - _COLD_START) * 1000.0
 
 logger.info(
@@ -64,10 +83,6 @@ logger.info(
         }
     )
 )
-
-# Which ablation stack the deployed API serves. Day 1 ships A; Day 2 moves this
-# to E once S2 and S3 are wired.
-SERVING_STACK = Stack(os.environ.get("SERVING_STACK", "A"))
 
 _CORS = {
     "Content-Type": "application/json",
@@ -90,6 +105,33 @@ def _respond(status: int, body: dict[str, Any]) -> dict[str, Any]:
 def _log(correlation_id: str, **fields: Any) -> None:
     """Structured JSON log with a correlation id (NFR-20)."""
     logger.info(json.dumps({"correlation_id": correlation_id, **fields}))
+
+
+def _emit_needs_info(order_id: str, correlation_id: str) -> None:
+    """Best effort: a missing bus must never fail the customer's answer.
+
+    The event carries ids only. The clarifier reads the stored resolution from
+    the order's META row, so no address text crosses the bus.
+    """
+    if CONFIG.is_local:
+        return
+    try:
+        import boto3
+
+        boto3.client("events", region_name=CONFIG.region).put_events(
+            Entries=[
+                {
+                    "Source": "patasetu.resolver",
+                    "DetailType": "AddressNeedsInfo",
+                    "EventBusName": CONFIG.event_bus,
+                    "Detail": json.dumps(
+                        {"order_id": order_id, "correlation_id": correlation_id}
+                    ),
+                }
+            ]
+        )
+    except Exception:  # pragma: no cover - network
+        logger.exception("AddressNeedsInfo event not emitted")
 
 
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
@@ -123,6 +165,13 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                 "serving_stack": SERVING_STACK.value,
                 "calibration": CALIBRATOR.describe(),
                 "gazetteer": _WARMED,
+                "landmark_index": PROVIDERS.search.count()
+                if SERVING_STACK.uses_retrieval and CONFIG.is_local
+                else None,
+                "cache": {
+                    "lookups": CACHE.stats.lookups,
+                    "hit_rate": round(CACHE.stats.hit_rate, 3),
+                },
                 "init_ms": round(_INIT_MS, 1),
             },
         )
@@ -160,6 +209,8 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             hint=request.hint,
             cfg=CONFIG,
             calibrator=CALIBRATOR,
+            providers=PROVIDERS,
+            cache=CACHE,
             correlation_id=correlation_id,
         )
     except StageUnavailable as exc:
@@ -182,6 +233,35 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         )
 
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    payload = result.model_dump(mode="json")
+
+    # Audit trail and review-queue row (NFR-22, FR-27). The order id is the
+    # caller's if given, else the correlation id, so every resolution is
+    # queryable as a timeline and every NEEDS_INFO / AMBIGUOUS case reaches the
+    # queue. Write failures are swallowed inside the store: a broken audit must
+    # never fail the customer's answer.
+    store.record_resolution(
+        PROVIDERS.store,
+        order_id=request.order_id or correlation_id,
+        resolution=payload,
+        correlation_id=correlation_id,
+    )
+
+    # A NEEDS_INFO case is handed to the clarifier agent through EventBridge,
+    # so question generation and the Cedar contact check happen off the request
+    # path (FR-20, FR-22). The customer's answer never waits on either.
+    if result.status.value == "NEEDS_INFO":
+        _emit_needs_info(request.order_id or correlation_id, correlation_id)
+
+    # One EMF line per request carries every dashboard metric: no PutMetricData
+    # call, no added latency. CloudWatch extracts and publishes them (NFR-10).
+    logger.info(
+        metrics.emf_record(
+            metrics.request_metrics(payload, elapsed_ms=elapsed_ms),
+            dimensions={"Stack": SERVING_STACK.value, "Provider": CONFIG.provider},
+            properties={"correlation_id": correlation_id},
+        )
+    )
 
     _log(
         correlation_id,
@@ -199,4 +279,4 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         stages={k: round(v, 2) for k, v in result.timings_ms.items()},
     )
 
-    return _respond(200, result.model_dump(mode="json"))
+    return _respond(200, payload)

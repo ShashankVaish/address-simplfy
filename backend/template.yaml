@@ -29,6 +29,48 @@ Parameters:
     Type: String
     Default: INFO
     AllowedValues: [DEBUG, INFO, WARNING, ERROR]
+  EnableOpenSearch:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the OpenSearch Serverless collection. It bills by the hour whether
+      idle or not, so `teardown.sh` flips this to false overnight and a morning
+      deploy flips it back -- the rest of the stack is untouched either way.
+  CheapModelId:
+    Type: String
+    # In ap-south-1 pass the inference-profile id: apac.amazon.nova-lite-v1:0
+    Default: amazon.nova-lite-v1:0
+  StrongModelId:
+    Type: String
+    # Sonnet 5: 2.5x cheaper than Opus 5 and sufficient for id selection.
+    Default: anthropic.claude-sonnet-5
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+  AdminPrincipalArn:
+    Type: String
+    Default: ""
+    Description: >-
+      IAM user or role ARN allowed to read/write the OpenSearch collection from
+      a laptop (create_index, warm_landmarks --upsert). The Lambda role is
+      always allowed; this adds one human. Empty means Lambda only.
+
+  ProtectOperatorRoutes:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Require a Cognito JWT (Authorization: Bearer ...) on /v1/queue,
+      /v1/feedback, /v1/orders and /v1/authorize. Verified inside the Lambda
+      against the user pool's JWKS. The playground (/v1/resolve, /health)
+      stays public either way. Off by default so the first deploy and the
+      smoke test need no login; turn on before the demo (NFR-16).
+
+Conditions:
+  UseOpenSearch: !Equals [!Ref EnableOpenSearch, "true"]
+
+  HasAdminPrincipal: !Not [!Equals [!Ref AdminPrincipalArn, ""]]
 
 Globals:
   Function:
@@ -54,17 +96,28 @@ Globals:
         RRF_K: "60"
         GEO_RADIUS_M: "3000"
         CACHE_TTL_DAYS: "90"
-        # Keeps boto3 from opening a new connection per call.
-        AWS_LAMBDA_EXEC_WRAPPER: ""
-  Api:
-    OpenApiVersion: 3.0.1
+        LANDMARK_INDEX: landmarks
+        PLACE_INDEX: !Ref PlaceIndex
+        MODEL_CHEAP: !Ref CheapModelId
+        MODEL_STRONG: !Ref StrongModelId
+        MODEL_EMBEDDING: !Ref EmbeddingModelId
+        OPENSEARCH_ENDPOINT: !If
+          - UseOpenSearch
+          - !GetAtt LandmarkCollection.CollectionEndpoint
+          - ""
+        PROTECT_OPERATOR_ROUTES: !Ref ProtectOperatorRoutes
+        COGNITO_ISSUER: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+        COGNITO_AUDIENCE: !Ref UserPoolClient
 
 Resources:
   # --- shared code -----------------------------------------------------------
   CommonLayer:
     Type: AWS::Serverless::LayerVersion
     Metadata:
-      BuildMethod: python3.12
+      # makefile, not python3.12: the Makefile pins Linux/arm64 wheels so the
+      # layer is correct when built on a Mac or Windows laptop. See
+      # layers/common/Makefile.
+      BuildMethod: makefile
       BuildArchitecture: arm64
     Properties:
       LayerName: !Sub "patasetu-common-${Stage}"
@@ -141,6 +194,103 @@ Resources:
     Properties:
       Name: !Sub "patasetu-${Stage}"
 
+  # --- landmark graph: OpenSearch Serverless ---------------------------------
+  # Serverless for the hackathon: no cluster sizing, no node management, and it
+  # scales to the volumes we will actually push. The three policies below are
+  # all mandatory -- a collection with no encryption policy fails to create, and
+  # one with no data-access policy accepts no requests -- and the ordering is
+  # enforced with DependsOn because CloudFormation does not infer it.
+  LandmarkEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-enc-${Stage}"
+      Type: encryption
+      Policy: !Sub '{"Rules":[{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"]}],"AWSOwnedKey":true}'
+
+  LandmarkNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-net-${Stage}"
+      Type: network
+      # Public endpoint, IAM-authenticated. A VPC endpoint would add a NAT
+      # gateway to a four-day budget for no security the SigV4 signing does not
+      # already provide.
+      Policy: !Sub '[{"Rules":[{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"]},{"ResourceType":"dashboard","Resource":["collection/patasetu-${Stage}"]}],"AllowFromPublic":true}]'
+
+  LandmarkCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Condition: UseOpenSearch
+    DependsOn: [LandmarkEncryptionPolicy, LandmarkNetworkPolicy]
+    Properties:
+      Name: !Sub "patasetu-${Stage}"
+      Type: VECTORSEARCH
+      Description: Landmark graph - BM25 + kNN + geo_point in one index
+      # The single biggest cost in the stack. Serverless bills a minimum of
+      # OCUs per hour whether idle or not; standby replicas double it. With
+      # them off the floor is ~2 OCU, about $12/day -- still the reason
+      # teardown.sh exists.
+      StandbyReplicas: DISABLED
+
+  LandmarkDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Condition: UseOpenSearch
+    Properties:
+      Name: !Sub "patasetu-data-${Stage}"
+      Type: data
+      # Every role that touches the index (the resolver reads, the learner
+      # writes); plus the operator's own principal when given, so create_index
+      # and warm_landmarks can run from a laptop. A role missing here gets a
+      # 403 on every call -- the learner was, and reported every landmark as
+      # "not in graph" until the day it was added.
+      Policy: !If
+        - HasAdminPrincipal
+        - !Sub
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${LearnerRole}","${AdminPrincipalArn}"]}]'
+          - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+            LearnerRole: !GetAtt LearnerFunctionRole.Arn
+        - !Sub
+          - '[{"Rules":[{"ResourceType":"index","Resource":["index/patasetu-${Stage}/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/patasetu-${Stage}"],"Permission":["aoss:*"]}],"Principal":["${ResolverRole}","${LearnerRole}"]}]'
+          - ResolverRole: !GetAtt ResolverFunctionRole.Arn
+            LearnerRole: !GetAtt LearnerFunctionRole.Arn
+
+  # --- geocoder fallback: Amazon Location Service ----------------------------
+  PlaceIndex:
+    Type: AWS::Location::PlaceIndex
+    Properties:
+      IndexName: !Sub "patasetu-places-${Stage}"
+      DataSource: Esri
+      DataSourceConfiguration:
+        # Results are used once and not stored, which is what SingleUse means
+        # and what keeps the per-request price at the lowest tier.
+        IntendedUse: SingleUse
+      Description: S4 fallback when no landmark matched
+
+  # --- auth: Cognito ---------------------------------------------------------
+  # The playground stays public and read-only so a judge can use it without a
+  # login (FR-26). The review queue and metrics are behind this pool (NFR-16).
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "patasetu-${Stage}"
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+      AdminCreateUserConfig:
+        # Operators are invited, not self-registered.
+        AllowAdminCreateUserOnly: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: console
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+
   # --- API -------------------------------------------------------------------
   # HTTP API rather than REST API: lower latency, lower cost, and we need none
   # of the REST extras.
@@ -152,11 +302,12 @@ Resources:
         AllowOrigins: ["*"]
         AllowHeaders: [content-type, x-correlation-id]
         AllowMethods: [GET, POST, OPTIONS]
-      Throttle:
+      DefaultRouteSettings:
         # A public, unauthenticated playground needs a ceiling. These are low on
         # purpose: a runaway loop against a public URL is a billing incident.
-        BurstLimit: 20
-        RateLimit: 10
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
 
   ResolverFunction:
     Type: AWS::Serverless::Function
@@ -171,6 +322,30 @@ Resources:
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
         - CloudWatchPutMetricPolicy: {}
+        - Statement:
+            # Bedrock: the two structuring models and the embedder, and nothing
+            # else. Model ids are parameters, so switching models is a deploy
+            # with no policy edit.
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:Converse]
+              Resource:
+                # In ap-south-1 the Nova and Claude models are only invokable
+                # through a cross-region inference profile ("apac." prefix on
+                # the model id), which may route the request to any APAC
+                # region. The policy therefore has to allow the *underlying*
+                # foundation models in every region -- pinning the ARN to
+                # ${AWS::Region} produced AccessDenied on the first real call.
+                # The embedding model is a plain regional id and stays pinned.
+                - "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude-*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            - Effect: Allow
+              Action: [aoss:APIAccessAll]
+              Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+            - Effect: Allow
+              Action: [geo:SearchPlaceIndexForText]
+              Resource: !GetAtt PlaceIndex.Arn
       Events:
         Resolve:
           Type: HttpApi
@@ -184,6 +359,169 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /health
             Method: GET
+
+  QueueApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-queue-${Stage}"
+      CodeUri: functions/queue_api/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+      Events:
+        Queue:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/queue
+            Method: GET
+        Feedback:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/feedback
+            Method: POST
+        Order:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/orders/{order_id}
+            Method: GET
+
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-authorizer-${Stage}"
+      CodeUri: functions/authorizer/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+      Events:
+        Authorize:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/authorize
+            Method: POST
+
+  # Learning never sits in the request path: the resolver and the console emit
+  # events, and this function consumes them on its own clock.
+  LearnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-learner-${Stage}"
+      CodeUri: functions/learner/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - Statement:
+            - Effect: Allow
+              Action: [aoss:APIAccessAll]
+              Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+      Events:
+        DeliveryConfirmed:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBus
+            Pattern:
+              detail-type: [DeliveryConfirmed, CaseReviewed]
+
+  # The clarifier agent (FR-20): one question, in the customer's script, for a
+  # NEEDS_INFO case -- but only after Cedar says outreach is allowed right now.
+  # Its Strands Agents dependency lives in the function, not the shared layer,
+  # so the resolver's cold start does not pay for it.
+  ClarifierFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+      BuildArchitecture: arm64
+    Properties:
+      FunctionName: !Sub "patasetu-clarifier-${Stage}"
+      CodeUri: functions/clarifier/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - Statement:
+            # MODEL_CHEAP comes from Globals; the agent uses the same Nova Lite
+            # profile as the resolver's cheap tier.
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
+              Resource:
+                - !Sub "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+      Events:
+        AddressNeedsInfo:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBus
+            Pattern:
+              detail-type: [AddressNeedsInfo]
+
+  # One dashboard carrying every headline metric. A demo asset, not plumbing.
+  # The metrics are published by the resolver via Embedded Metric Format, so
+  # nothing here is a custom PutMetricData call.
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "patasetu-${Stage}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "metric", "x": 0, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Resolution outcomes (share)", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "ResolutionRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "ClarificationRate", ".", ".", ".", "."],
+                           [".", "AmbiguousRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 8, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Latency p50 / p95 (ms)", "region": "${AWS::Region}", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "LatencyMs", "Stack", "${ServingStack}", "Provider", "aws", {"stat": "p50"}],
+                           ["...", {"stat": "p95"}]]}},
+            {"type": "metric", "x": 16, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Cost per address (USD, est.)", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "CostPerAddress", "Stack", "${ServingStack}", "Provider", "aws"]]}},
+            {"type": "metric", "x": 0, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Model cascade: call rate vs escalation rate", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "ModelCallRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "EscalationRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 8, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Cache hit rate", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "CacheHitRate", "Stack", "${ServingStack}", "Provider", "aws"]]}},
+            {"type": "metric", "x": 16, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Geocode source: graph vs centroid", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "GeoFromGraphRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "GeoFromCentroidRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 0, "y": 12, "width": 24, "height": 5,
+             "properties": {"title": "Lambda errors and throttles", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+               "metrics": [["AWS/Lambda", "Errors", "FunctionName", "patasetu-resolver-${Stage}"],
+                           [".", "Throttles", ".", "."],
+                           [".", "Errors", ".", "patasetu-queue-${Stage}"],
+                           [".", "Errors", ".", "patasetu-authorizer-${Stage}"],
+                           [".", "Errors", ".", "patasetu-learner-${Stage}"]]}}
+          ]
+        }
 
   ResolverLogGroup:
     Type: AWS::Logs::LogGroup
@@ -225,3 +563,14 @@ Outputs:
     Value: !Ref Bucket
   EventBusName:
     Value: !Ref EventBus
+  OpenSearchEndpoint:
+    Description: Empty when EnableOpenSearch is false.
+    Value: !If [UseOpenSearch, !GetAtt LandmarkCollection.CollectionEndpoint, ""]
+  PlaceIndexName:
+    Value: !Ref PlaceIndex
+  DashboardUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=patasetu-${Stage}"
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient

@@ -259,21 +259,21 @@ This single hour is what lets four people work in parallel instead of blocking e
 ### 09:00–13:00 — Learning loop, Cedar, calibration
 
 **C — the heaviest day of the four**
-- [ ] **P0** · `functions/learner/app.py` — on `DeliveryConfirmed`: `observation_count += 1`, EMA nudge on coordinates, alias upsert
-- [ ] **P0** · EventBridge rules wiring resolver to learner
-- [ ] **P0** · `policies/contact.cedar` — quiet hours 09:00–20:00, one message per order, opt-out `forbid`
-- [ ] **P0** · `policies/overwrite.cedar` — confidence > 0.95 **and** `geo_source == landmark_graph`
-- [ ] **P0** · `functions/authorizer/app.py` — Cedar evaluation, **fail closed** on error
-- [ ] **P0** · Denial routes to the review queue with policy id and reason. **Never a silent drop**
-- [ ] **P0** · `tests/test_cedar_policies.py` — quiet hours, opt-out, second message
+- [x] **P0** · `functions/learner/app.py` — on `DeliveryConfirmed`: `observation_count += 1`, EMA nudge on coordinates, alias upsert
+- [x] **P0** · EventBridge rules wiring resolver to learner
+- [x] **P0** · `policies/contact.cedar` — quiet hours 09:00–20:00, one message per order, opt-out `forbid`
+- [x] **P0** · `policies/overwrite.cedar` — confidence > 0.95 **and** `geo_source == landmark_graph`
+- [x] **P0** · `functions/authorizer/app.py` — Cedar evaluation, **fail closed** on error
+- [x] **P0** · Denial routes to the review queue with policy id and reason. **Never a silent drop**
+- [x] **P0** · `tests/test_cedar_policies.py` — quiet hours, opt-out, second message
 
 **A — clarification agent**
-- [ ] **P0** · `functions/clarifier/agent.py` — Strands agent, one question targeting the highest-information missing field
-- [ ] **P0** · Language mirroring — Devanagari in, Hindi out
+- [x] **P0** · `functions/clarifier/agent.py` — Strands agent, one question targeting the highest-information missing field
+- [x] **P0** · Language mirroring — Devanagari in, Hindi out
 
 **B — observability**
-- [ ] **P0** · One CloudWatch dashboard: `ResolutionRate`, `ClarificationRate`, `EscalationRate`, `CostPerAddress`, `CacheHitRate`, p95 latency
-- [ ] **P1** · Structured JSON logs with `correlation_id` across every stage
+- [x] **P0** · One CloudWatch dashboard: `ResolutionRate`, `ClarificationRate`, `EscalationRate`, `CostPerAddress`, `CacheHitRate`, p95 latency
+- [x] **P1** · Structured JSON logs with `correlation_id` across every stage
 
 **D — the Best UI entry**
 - [ ] **P0** · Playground **stage-by-stage reveal** — deterministic fields appear, landmarks match, pin drops, DIGIPIN renders
@@ -281,10 +281,10 @@ This single hour is what lets four people work in parallel instead of blocking e
 
 ### 13:00–16:00 — Calibration and the learning curve
 
-- [ ] **P0** · *C* · Fit **isotonic regression** on the dev split
-- [ ] **P0** · *C* · `eval/reliability.py` produces `docs/results/reliability.png`
+- [x] **P0** · *C* · Fit **isotonic regression** on the dev split
+- [x] **P0** · *C* · `eval/reliability.py` produces `docs/results/reliability.png`
 - [ ] **P0** · *C* · Choose the threshold that hits **precision >= 95%**; record the resulting clarification rate
-- [ ] **P0** · *C* · `eval/learning_curve.py` produces `docs/results/learning_curve.png`
+- [x] **P0** · *C* · `eval/learning_curve.py` produces `docs/results/learning_curve.png`
 - [ ] **P1** · *A* · `statemachines/clarification.asl.json` — authorise, send, wait-for-callback (6 h timeout), re-resolve, escalate
 - [ ] **P1** · *D* · Map view: pins coloured by confidence, landmark layer
 - [ ] **P1** · *D* · Metrics screen with real numbers
@@ -304,7 +304,7 @@ This single hour is what lets four people work in parallel instead of blocking e
 
 This is the change that makes Sunday a real buffer.
 
-- [ ] **P0** · *D* · `docs/demo_script.md` finalised, storyboarded
+- [x] **P0** · *D* · `docs/demo_script.md` finalised, storyboarded
 - [ ] **P0** · *all* · Warm the Lambda path before recording
 - [ ] **P0** · *all* · **Record one complete take**, following the beat sheet:
 
@@ -319,7 +319,7 @@ This is the change that makes Sunday a real buffer.
 | 2:35–3:00 | CloudWatch dashboard; **what we learned** |
 
 - [ ] **P0** · *all* · Watch it back in full. Write down every flaw — do not fix them tonight
-- [ ] **P0** · *A* · Blog post **first draft** written (not published)
+- [x] **P0** · *A* · Blog post **first draft** written (not published)
 - [ ] **P0** · *B* · **Run `teardown.sh`**
 
 > ### Day 3 gate (23:00)

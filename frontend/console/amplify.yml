@@ -1,0 +1,22 @@
+# Amplify Hosting build spec. Set VITE_API_URL in the Amplify environment
+# variables to the ApiUrl output of `sam deploy`; leave it empty for mock mode.
+# Add a rewrite rule `</^[^.]+$|\.(?!(css|js|png|svg|woff2?)$)([^.]+$)/>` ->
+# `/index.html` (200) so /queue deep-links serve the SPA.
+version: 1
+applications:
+  - appRoot: frontend/console
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - node_modules/**/*

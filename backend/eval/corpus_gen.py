@@ -70,8 +70,7 @@ _KNOWN_DEVA: dict[str, str] = {
     "nagar": "नगर", "delhi": "दिल्ली", "mumbai": "मुंबई", "colony": "कॉलोनी",
     "road": "रोड", "gali": "गली", "mandir": "मंदिर", "masjid": "मस्जिद",
     "market": "मार्केट", "bazaar": "बाज़ार", "post": "पोस्ट",
-    "office": "ऑफिस", "near": "के पास", "behind": "के पीछे",
-    "opposite": "के सामने", "sector": "सेक्टर", "block": "ब्लॉक",
+    "office": "ऑफिस", "sector": "सेक्टर", "block": "ब्लॉक",
     "house": "मकान", "number": "नंबर", "floor": "मंज़िल", "new": "नई",
     "village": "गाँव", "district": "ज़िला", "state": "राज्य",
     "kolkata": "कोलकाता", "chennai": "चेन्नई", "bengaluru": "बेंगलुरु",
@@ -81,8 +80,34 @@ _KNOWN_DEVA: dict[str, str] = {
 # fmt: on
 
 
+# English prepositions become Hindi *post*positions: "near Nairi" is
+# "नैरि के पास", with the relation after the landmark. Generating the English
+# word order with a Hindi word ("के पास नैरि") produces text no Hindi speaker
+# would write, and it taught the extractor to capture the wrong span.
+_RELATION_TO_POSTPOSITION = (
+    (re.compile(r"\bnear\s+([^,]+?)(?=,|$)", re.IGNORECASE), "के पास"),
+    (re.compile(r"\bbehind\s+([^,]+?)(?=,|$)", re.IGNORECASE), "के पीछे"),
+    (re.compile(r"\bopposite\s+([^,]+?)(?=,|$)", re.IGNORECASE), "के सामने"),
+    (re.compile(r"\bbeside\s+([^,]+?)(?=,|$)", re.IGNORECASE), "के बगल"),
+)
+
+
+def hindi_word_order(text: str) -> str:
+    """Move relation words after their landmark, as Hindi does."""
+    for pattern, postposition in _RELATION_TO_POSTPOSITION:
+        # Bind the postposition explicitly: a closure over the loop variable is
+        # evaluated late, and would silently use the last one if this were ever
+        # deferred.
+        def rewrite(m: re.Match[str], post: str = postposition) -> str:
+            return f"{m.group(1).strip()} {post}"
+
+        text = pattern.sub(rewrite, text)
+    return text
+
+
 def to_devanagari(text: str) -> str:
     """Approximate Latin -> Devanagari, for generating test input only."""
+    text = hindi_word_order(text)
     out: list[str] = []
     for word in text.split():
         core = word.strip(".,-")

@@ -186,7 +186,7 @@ Three independent signals, one OpenSearch round trip, fused with Reciprocal Rank
 |---|---|---|
 | BM25 lexical | `match` on `canonical_name` + `aliases`, boosted on exact tokens | Correct spellings, distinctive proper nouns |
 | Dense vector | `knn` over Titan Text Embeddings v2 (1024-d, cosine) | "Sunrise Apts" ≈ "Sunrise Apartment"; transliteration variants; word-order changes |
-| Geo filter | `geo_distance ≤ 3 km` from pincode centroid or GPS hint | Kills the 400 other "Shiv Mandir"s in India — the highest-value filter in the system |
+| Geo filter | `geo_distance` from a GPS hint (3 km) or a pincode centroid (**scaled to the pincode's size**, 3–20 km) | Kills the 400 other "Shiv Mandir"s in India. A fixed 3 km is a metro assumption: 29% of gold localities sit more than 3 km from their own pincode centroid |
 
 **RRF over a tuned linear blend**, deliberately: it needs no score normalisation across incompatible scales, and it degrades gracefully when one signal is missing (no pincode, no hint).
 
@@ -228,7 +228,9 @@ Rules 2 and 5 are the difference between a demo and a liability.
 
 ### S5 — DIGIPIN generation
 
-A local pure function `digipin(lat, lng) → "XXX-XXX-XXXX"`, using the official open-source implementation published by the Department of Posts. No network call, no cost, deterministic, offline-capable.
+A local pure function `digipin(lat, lng) → "XXXXXXXXXX"` — a continuous 10-character string — using the official open-source implementation published by the Department of Posts (`INDIAPOST-gov/digipin`). No network call, no cost, deterministic, offline-capable.
+
+> **The format changed.** The official encoder no longer emits the `XXX-XXX-XXXX` hyphens and the official decoder rejects them. The continuous form is canonical everywhere in this system; hyphenation is display-only (`format_digipin`).
 
 > **Do not hand-roll the encoder.** The final DIGIPIN specification changed some characters in the alphabet relative to earlier beta versions. Vendor the official implementation and unit-test known (lat, lng) → code pairs against the India Post portal. Twenty minutes on Day 1 prevents a silent, invisible, demo-destroying bug.
 
@@ -258,7 +260,7 @@ This is what makes PataSetu a system rather than a prompt.
   "aliases": ["शिव मंदिर", "shiv mandir", "shiv temple", "mandir wali gali"],
   "type": "religious",
   "location": { "lat": 28.65198, "lon": 77.12013 },   // geo_point
-  "digipin_cell": "39J-49L-L8T2",
+  "digipin_cell": "39JJTT4562",
   "pincode": "110015",
   "embedding": [ /* 1024 floats */ ],                  // knn_vector
   "observation_count": 47,

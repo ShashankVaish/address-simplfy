@@ -285,3 +285,7 @@ class LandmarkRecord(StrictModel):
     confidence: Confidence = 0.5
     access_notes: list[dict[str, Any]] = Field(default_factory=list)
     last_seen: str | None = None
+    # The kNN vector. Optional because a landmark can be indexed lexically
+    # before it has been embedded -- the graph is warmed in stages, and a
+    # missing vector must degrade the kNN signal rather than block indexing.
+    embedding: list[float] | None = None

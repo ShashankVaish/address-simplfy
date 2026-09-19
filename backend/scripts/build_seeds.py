@@ -403,7 +403,7 @@ def nearby_landmarks(
 
 
 _SUB_LOCALITY_RE = re.compile(
-    r"(sector|phase)\s*[:\-]?\s*([0-9]{1,3}\s*[a-z]?|[ivx]{1,4})", re.IGNORECASE
+    r"\b(sector|phase)\s*[:\-]?\s*([0-9]{1,3}\s*[a-z]?|[ivx]{1,4})\b", re.IGNORECASE
 )
 
 

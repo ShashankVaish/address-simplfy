@@ -202,3 +202,244 @@ Two things we are glad we did today rather than Saturday:
   asking for information we already have is how customers learn to ignore us; it
   now asks for a map confirmation instead, which is the right question when the
   gap is an unverified location rather than an absent field.
+
+---
+
+## Day 2 — Friday 18 September
+
+### A fixed 3 km geo radius is a metro assumption, and it was excluding the right answer
+
+The architecture document describes the geo filter as "3 km around the pincode
+centroid — the highest-value filter in the system". It is the highest-value
+filter in a *city*. Measured on the dev split, **29% of localities sit more than
+3 km from their own pincode centroid**, with a 90th percentile of 14.8 km and a
+maximum of 82 km. Rural pincodes are areas, not points.
+
+The consequence was invisible until measured: with the hybrid signals enabled,
+the correctly named landmark was being *filtered out* before scoring, and the
+median geocode error went from 0 m (BM25 only, no geo filter) to over 1 km.
+The radius now scales with the pincode's own estimated size, which we already
+compute from its office count. A GPS hint keeps the tight radius, because a
+rider is standing near the doorstep. After the change both retrieval modes give
+a 0 m median.
+
+The general lesson: a constant that is obviously right for Delhi is a *claim*
+about the rest of India, and the gold set is spread across 23 cities precisely
+so that such claims get tested.
+
+### "Near X" is not "at X"
+
+Every address that named a landmark was being geocoded *from the landmark*.
+"Baulabanadh Post Office, near Nairi" is a doorstep at Baulabanadh, near Nairi
+— and Baulabanadh itself was in the graph, at exactly the true coordinate. The
+pipeline never looked it up, because S1 only extracts *relation* phrases and a
+locality has no relation word in front of it.
+
+The fix is to treat the locality as the **anchor**: it is searched alongside the
+relation phrases, and when it matches, S4 geocodes from it with an `inside`
+relation and a wider accuracy radius, ahead of any "near". That single change
+moved the median geocode error of the retrieval stacks from 1,358 m to **0 m**.
+
+### RRF rank adjacency is not ambiguity
+
+The AMBIGUOUS rule compared the top two candidates' fused scores and called them
+"near-equal" within 5%. Under Reciprocal Rank Fusion, ranks 1 and 2 in the same
+signal score 1/61 and 1/62 — a 1.6% gap — *whatever the names are*. A quarter
+of the dev split came back AMBIGUOUS, most of it two random nearby places.
+
+Rivalry is now judged on **name affinity**: does the text name both candidates
+about equally well? Two places found by proximity alone are never rivals. The
+ambiguous rate fell from 25% to 4%, and the cases that remain are the real
+ones — the two Shiv Mandirs with no pincode to separate them.
+
+### The prompt budget is not the candidate budget
+
+`candidates_to_model = 8` was applied inside retrieval, so only the top eight
+fused candidates were ever materialised. With the proximity signal on, those
+eight slots filled with nearby-but-unnamed places, and the landmark the text
+actually named — first by BM25, ninth after fusion — was gone before the
+affinity matcher could see it. The cap now applies only to what is *sent to the
+model*; the matcher and S4 see the whole list.
+
+### Our corpus generator was writing Hindi nobody writes
+
+It mapped "near Nairi" to "के पास नैरि": English word order with a Hindi
+postposition. Real Hindi puts the relation *after* the landmark — "नैरि के
+पास". The extractor, correctly matching the postposition, then captured the
+words *before* it: the pincode and a transliterated "post office". The corpus
+now rewrites word order before transliterating, and the phrase cleaner strips
+digits and postal jargon from both ends of a captured landmark.
+
+### A backspace character had been silently disabling a Day 1 feature
+
+Writing `\b` through two layers of shell and Python quoting produced a literal
+U+0008 in `_SUB_LOCALITY_RE`, so the pattern could never match and
+`sub_locality_of()` had returned `None` for every seed since Thursday. The
+field showed as "unmeasured" in the ablation, which was true and also the only
+visible symptom. Found by grepping every `.py` file for control characters,
+which is now something we do after any scripted edit. `sub_locality` is
+measured as of today.
+
+### Two real bugs my own tests caught in code I had just written
+
+- `normalise_model_output` recorded a conflict when the model disagreed with a
+  validated pincode — and then `continue`d before copying the validated value
+  into the result, so the one field we were *sure* of vanished from S3's
+  output. The pipeline masked it (S1's value survived by a different route),
+  which is exactly why the module has its own tests.
+- `attach_matches` assigned candidates to phrases in retrieval order, so
+  "behind shiv mandir" got whichever candidate ranked first overall — plausibly
+  the Gupta store from the *other* phrase in the same address. Assignment is
+  now by measured affinity, globally greedy and one-to-one.
+
+### What retrieval alone is worth, measured honestly
+
+Bedrock access is not yet granted and Ollama is not installed here, so the
+model stacks B–E report **NOT RUN** with the exact reason rather than a number
+from a stub. What *can* be measured is retrieval without a model — the two
+diagnostic rows — and the result is the strongest single argument the
+architecture has:
+
+| | Geo median | Geo p90 | Coverage |
+|---|---|---|---|
+| A — no retrieval | 969 m | 18,449 m | 70% |
+| R1 — + BM25 retrieval | **0 m** | 2,388 m | 87% |
+| R2 — + vector + geo | **0 m** | 2,895 m | 89% |
+
+Field F1 is unchanged (0.826) across all three, as it should be: retrieval does
+not extract fields, it *places* them. That separation is the point of running
+the diagnostics — when the model stacks do run, any F1 gain is attributable to
+S3 and any geocode gain to S2, and neither can take credit for the other.
+
+Two honest caveats travel with those numbers. The local vector signal is a
+character-trigram hashing model, not Titan, so R2 is a lower bound. And the
+landmark graph was warmed from the same directory the addresses came from — the
+"0 m" says the graph *works* when it knows the place, not that it knows every
+place.
+
+### Smaller notes
+
+- `OpenSearch _msearch` is one HTTP round trip carrying three query bodies. It
+  satisfies "one round trip" (NFR-04) while returning each signal's ranking
+  separately, which RRF needs and a blended query cannot provide.
+- Delivery chatter ("call before coming") is now stripped in S0, before the
+  cache key is hashed. Two submissions of the same address with and without it
+  are an exact cache hit rather than two pipeline runs.
+- In `aws` mode the near-duplicate cache is off: it would cost a Titan call on
+  every request *before* knowing whether the cache hits. It is on in local mode
+  where the embedder is free. The hit rate will decide whether that changes.
+
+---
+
+## Day 3 — Saturday 19 September
+
+### Cedar's evaluator does not tell you *which* policy fired — you have to keep a map
+
+`cedarpy` returns the matching policies as `policy0`, `policy1`, … — their
+position in the policy file — not the `@id("contact-opted-out")` annotation we
+wrote. The demo needs the name on screen ("DENY — `contact-opted-out`"), and so
+does the review-queue row. A quiet-hours denial is subtler still: *no* policy
+matches, because the only permit is scoped to 09:00–20:00 — so the explanation
+has to be derived from the context, not from a policy id. We parse the policy file once at import,
+record the `@id` of each `permit`/`forbid` in order, and translate. A test
+asserts that every policy has an `@id` so a new one cannot silently become
+"policy3" in the UI.
+
+Lesson: an authorization engine answers *allow or deny*. Turning that into an
+*explanation* is application work, and it needs a test.
+
+### The first draft of the opt-out policy was scoped too tightly, and a test caught it
+
+The opt-out `forbid` was written as `principal == Agent::"clarifier"`. It
+passed every clarifier test. Then the test "even an operator cannot contact an
+opted-out customer" failed: an operator was allowed through by the
+`contact-human-operator` permit, and the forbid did not apply to them. Opt-out
+is a customer's decision about *all* contact, so the forbid now uses a bare
+`principal` — it applies to every principal, forever, and no permit can
+override it because Cedar forbids always win.
+
+This is the argument for policy tests over policy review: a human reading the
+file saw "opted out → forbid" and approved it. The test read the actual
+semantics.
+
+### Fail closed means the authorizer must be *allowed to fail*
+
+If `cedarpy` raises (bad schema, engine bug, missing file), the decision is
+DENY with the error attached, and the case goes to the review queue with the
+reason. It is tempting to let an evaluator exception fall through to a 500 —
+but a 500 on the authorizer means the caller decides what to do, and callers
+default to "proceed". A denial with an explanation keeps the customer safe and
+puts the bug on the operator's screen.
+
+### Isotonic calibration on 150 points is coarse, and in-sample ECE lies
+
+Fitting the calibrator on the dev split gives an in-sample ECE of exactly
+0.000 — which is meaningless, because any monotone map fitted on its own data
+does that. The number we report is the **2-fold cross-validated** ECE, 0.057
+(from a raw 0.217). The fitted map has 8 knots; between knots it is a step
+function, so two addresses with confidence 0.70 and 0.77 get the same
+calibrated value. More data would smooth it, and the cloud run on stack E
+will re-fit it.
+
+The threshold search found **no** confidence band with ≥ 10 addresses at 95%
+precision on stack R2. That is correct, not a bug: without a model the
+pipeline rarely gets fields *and* geocode both right, and "correct" for
+calibration requires both. The threshold is a stack E number.
+
+### The learning curve is a step, not a slope
+
+We expected the graph-hit rate to climb gradually with addresses seen per
+locality. It jumps: 5.6% at zero, 80.6% after **one** confirmed delivery, and
+flat from there. One address's landmarks are enough to place the next address
+in the same locality if the two share a landmark — and in a real neighbourhood
+they usually do (the temple, the school, the market). The remaining ~20% share
+no landmark and fall through to the geocoder or pincode centroid.
+
+The honest caveat is in the script's docstring: confirmations use the corpus's
+own ground truth, not riders' GPS. The curve shows the *mechanism* transfers;
+the learner's EMA nudge is what makes it survive noisy fixes.
+
+### An EMA with a shrinking weight, not a replace
+
+The learner's coordinate update is `coord += α · (fix − coord)` with
+`α = max(0.02, 1/(n+1))`. A cold landmark (n=0) jumps to its first
+confirmation; one seen 47 times moves ~1 m. Fixes further than 400 m from the
+landmark are rejected outright (a wrong tap or a wrong match is not evidence
+about the temple), and a fix with reported GPS accuracy worse than 50 m earns
+proportionally less weight. The test that motivated all of it: "one bad fix
+cannot move a warm landmark far".
+
+### SAM cannot attach an API authorizer conditionally
+
+`ProtectOperatorRoutes` is a CloudFormation parameter. A route-level
+`Auth: {Authorizer: !If [...]}` fails at transform time — SAM needs the
+authorizer name literal. So JWT verification lives in the Lambda
+(`patasetu.auth`), keyed off an environment variable that *can* be `!Ref`'d.
+Same deploy, flip the parameter, protection on. The verification is the full
+one — RS256 only, JWKS fetched once per container, `iss`, `aud`/`client_id`,
+`exp` — and misconfiguration fails closed: a protected route with no pool
+configured admits nobody.
+
+### Strands agents need a fallback that is not "retry"
+
+The clarifier asks a Strands agent (Nova Lite) for one question in the
+customer's script, as structured output. If the SDK is not installed, the call
+fails, or the model returns two questions, it falls back to a template
+question built from the missing fields — and records `source: template` on
+the order so the console shows which path ran. A customer waiting for a
+question should never see a stack trace, and an evaluation should never be
+fooled into crediting the agent for a template.
+
+### Smaller notes
+
+- The Cedar context passes confidence as an **integer percentage**. Cedar has
+  no floats, and `confidence > 0.95` in a policy file would not parse. One
+  conversion function, tested at the clamps.
+- `AddressNeedsInfo` carries order and correlation ids only. The clarifier
+  reads the resolution from DynamoDB, so no address text crosses the bus.
+- The clarifier's dependency (`strands-agents`) is built into the function
+  with its own Makefile, not the shared layer — the resolver's cold start
+  should not pay for an SDK it never imports.
+- Tests that read `data/calibration.json` from disk were coupled to a build
+  artefact; an autouse fixture now pins an identity calibrator, and one test
+  explicitly undoes it to check the file path.

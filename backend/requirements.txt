@@ -1,5 +1,9 @@
-# Lambda runtime dependencies. Deliberately short: the DIGIPIN encoder, the
-# normaliser, the parser and the gazetteer are all pure standard library, which
-# keeps the layer small and cold starts fast.
+# Local development and the scripts that talk to the cloud (create_index,
+# warm_landmarks --upsert). The Lambda layer has its own list in
+# layers/common/requirements.txt, built with Linux wheels.
 pydantic>=2.9,<3
 boto3>=1.35
+opensearch-py>=2.4
+requests-aws4auth>=1.2
+cedarpy>=4.0
+PyJWT[crypto]>=2.9
