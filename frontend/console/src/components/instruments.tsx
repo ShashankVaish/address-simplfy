@@ -111,10 +111,7 @@ export function DigipinPlate({ digipin, size = "md" }: { digipin: string; size?:
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between font-mono text-2xs text-muted">
-        <span>DIGIPIN · {formatDigipin(digipin)}</span>
-        <span>~4 m cell · computed locally · ₹0</span>
-      </div>
+      <div className="font-mono text-2xs text-muted">DIGIPIN · {formatDigipin(digipin)} · ~4 m cell · computed locally · ₹0</div>
     </div>
   );
 }

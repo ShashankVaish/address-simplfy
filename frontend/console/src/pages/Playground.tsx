@@ -281,14 +281,15 @@ export default function Playground({ theme }: { theme: "light" | "dark" }) {
               )}
             </div>
           </Panel>
-
-          {result && (
-            <Panel title="Evidence" aside="what an analyst reads before trusting the answer" className={`reveal ${stage >= 4 ? "" : "reveal-hidden"}`}>
-              <EvidenceList evidence={result.evidence} />
-            </Panel>
-          )}
         </div>
       </div>
+
+      {/* ------------------------------------------------------------ evidence, full width */}
+      {result && (
+        <Panel title="Evidence" aside={`${result.evidence.length} lines · what an analyst reads before trusting the answer`} className={`reveal ${stage >= 4 ? "" : "reveal-hidden"}`}>
+          <EvidenceList evidence={result.evidence} columns />
+        </Panel>
+      )}
     </div>
   );
 }

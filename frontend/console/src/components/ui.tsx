@@ -341,10 +341,10 @@ export function DigipinBadge({ digipin }: { digipin: string | null }) {
 
 // --- evidence -----------------------------------------------------------------------
 
-export function EvidenceList({ evidence }: { evidence: string[] }) {
+export function EvidenceList({ evidence, columns = false }: { evidence: string[]; columns?: boolean }) {
   if (!evidence.length) return <Empty title="No evidence recorded" />;
   return (
-    <ol className="space-y-1.5 text-xs leading-relaxed text-ink-2">
+    <ol className={`space-y-1.5 text-xs leading-relaxed text-ink-2 ${columns ? "lg:columns-2 lg:gap-8 [&>li]:break-inside-avoid" : ""}`}>
       {evidence.map((line, i) => {
         const warn = /NOT a doorstep|CONFLICT|degraded|penalty|AMBIGUOUS|denied|uncalibrated/.test(line);
         const good = /matched|RESOLVED|found in gazetteer|landmark graph/.test(line) && !warn;
