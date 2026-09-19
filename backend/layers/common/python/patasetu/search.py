@@ -333,6 +333,14 @@ class OpenSearchEngine:
                 verify_certs=True,
                 connection_class=RequestsHttpConnection,
                 pool_maxsize=20,
+                # A freshly created Serverless collection takes 20-40 s to
+                # accept its first bulk write with kNN vectors; the client's
+                # default 10 s read timeout fails the very first load. Query
+                # latency in the request path is bounded by the Lambda timeout
+                # regardless, so a generous read timeout costs nothing there.
+                timeout=60,
+                max_retries=3,
+                retry_on_timeout=True,
             )
         return self._client
 
