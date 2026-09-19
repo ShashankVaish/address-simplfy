@@ -54,20 +54,9 @@ export function Icon({ name, className = "h-4 w-4" }: { name: IconName; classNam
 
 // --- logo -------------------------------------------------------------------------
 
-/**
- * The mark: a bridge (setu) from a written address to a found doorstep.
- * Ink badge, saffron arc, the landing side in leaf. Themed through tokens.
- */
-export function Logo({ className = "h-7 w-7" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 28 28" className={className} aria-hidden="true">
-      <rect width="28" height="28" rx="7" className="fill-ink" />
-      <path d="M6.5 19.5C9.5 9.5 18.5 9.5 21.5 19.5" fill="none" className="stroke-saffron" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M6.5 19.5v2.5M21.5 19.5v2.5" fill="none" className="stroke-saffron" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="6.5" cy="19.5" r="2.4" className="fill-ground" />
-      <circle cx="21.5" cy="19.5" r="2.6" className="fill-leaf" />
-    </svg>
-  );
+/** The PataSetu mark: a pin over a bridge between two skylines. PNG with a transparent ground. */
+export function Logo({ className = "h-8" }: { className?: string }) {
+  return <img src="/logo-256.png" alt="" className={`${className} w-auto select-none`} draggable={false} />;
 }
 
 // --- layout -----------------------------------------------------------------------

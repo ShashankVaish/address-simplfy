@@ -39,7 +39,7 @@ export default function App() {
       <header className="sticky top-0 z-sticky border-b border-hairline bg-ground/85 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-6">
           <a href="https://main.d16dqxnda3ut4f.amplifyapp.com/" className="flex items-center gap-2.5 no-underline" title="PataSetu — about the project">
-            <Logo />
+            <Logo className="h-9" />
             <span className="text-md font-extrabold tracking-tight text-ink">PataSetu</span>
             <span className="hidden text-xs text-muted sm:inline">address resolution for India</span>
           </a>
