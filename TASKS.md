@@ -319,7 +319,7 @@ This is the change that makes Sunday a real buffer.
 | 2:35–3:00 | CloudWatch dashboard; **what we learned** |
 
 - [ ] **P0** · *all* · Watch it back in full. Write down every flaw — do not fix them tonight
-- [ ] **P0** · *A* · Blog post **first draft** written (not published)
+- [x] **P0** · *A* · Blog post **first draft** written (not published)
 - [ ] **P0** · *B* · **Run `teardown.sh`**
 
 > ### Day 3 gate (23:00)
