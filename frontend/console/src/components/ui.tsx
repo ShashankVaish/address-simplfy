@@ -363,23 +363,33 @@ export function EvidenceList({ evidence }: { evidence: string[] }) {
 
 type MapTheme = "light" | "dark";
 
-/** Raster basemaps: OSM by day, Carto Dark Matter by night. Both attributed. */
-function mapStyle(theme: MapTheme): maplibregl.StyleSpecification {
-  const dark = theme === "dark";
+/**
+ * One free basemap for both themes: OpenStreetMap raster. Dark mode does not
+ * swap tiles (the free dark tilesets now need an API key); it dims and
+ * desaturates the same tiles in the renderer, which keeps overlays untouched.
+ */
+function mapStyle(): maplibregl.StyleSpecification {
   return {
     version: 8,
     sources: {
       base: {
         type: "raster",
-        tiles: dark
-          ? ["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"]
-          : ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
         tileSize: 256,
-        attribution: dark ? "© OpenStreetMap contributors © CARTO" : "© OpenStreetMap contributors",
+        attribution: "© OpenStreetMap contributors",
       },
     },
     layers: [{ id: "base", type: "raster", source: "base" }],
   };
+}
+
+function applyTheme(m: maplibregl.Map, theme: MapTheme): void {
+  if (!m.getLayer("base")) return;
+  const dark = theme === "dark";
+  m.setPaintProperty("base", "raster-saturation", dark ? -0.85 : 0);
+  m.setPaintProperty("base", "raster-brightness-max", dark ? 0.42 : 1);
+  m.setPaintProperty("base", "raster-brightness-min", dark ? 0.03 : 0);
+  m.setPaintProperty("base", "raster-contrast", dark ? 0.2 : 0);
 }
 
 function pinElement(): HTMLElement {
@@ -421,14 +431,17 @@ export function MapPanel({ geo, theme, dim = false }: { geo: Geo | null; theme: 
     if (!container.current || map.current) return;
     const m = new maplibregl.Map({
       container: container.current,
-      style: mapStyle(theme),
+      style: mapStyle(),
       center: [78.9, 22.5],
       zoom: 3.6,
       attributionControl: false,
     });
     m.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    m.once("load", () => setReady(true));
+    m.once("load", () => {
+      applyTheme(m, theme);
+      setReady(true);
+    });
     map.current = m;
     const ro = new ResizeObserver(() => m.resize());
     ro.observe(container.current);
@@ -441,11 +454,11 @@ export function MapPanel({ geo, theme, dim = false }: { geo: Geo | null; theme: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Theme flip: swap the basemap, then re-draw whatever overlay we had.
+  // Theme flip: re-tint the same tiles; overlays and camera stay put.
   useEffect(() => {
     const m = map.current;
     if (!m || !ready) return;
-    m.setStyle(mapStyle(theme));
+    applyTheme(m, theme);
   }, [theme, ready]);
 
   useEffect(() => {
@@ -471,7 +484,7 @@ export function MapPanel({ geo, theme, dim = false }: { geo: Geo | null; theme: 
     };
     if (m.isStyleLoaded()) apply();
     else m.once("styledata", apply);
-  }, [geo, ready, theme]);
+  }, [geo, ready]);
 
   const doorstep = isDoorstepAccurate(geo);
   return (
