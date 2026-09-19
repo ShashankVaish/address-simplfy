@@ -76,9 +76,15 @@ class ResolutionCache:
         ttl_days: int = 90,
         embedder: Any | None = None,
         near_duplicates: bool = True,
+        namespace: str = "",
     ) -> None:
         self.kv = kv
         self.ttl_days = ttl_days
+        # A cached answer is only valid for the pipeline that produced it. The
+        # namespace carries the serving stack and the calibration fingerprint,
+        # so a redeploy that changes either starts a fresh cache instead of
+        # serving yesterday's confidence under today's threshold.
+        self.namespace = namespace
         self.embedder = embedder
         self.near_duplicates = near_duplicates
         self.stats = CacheStats()
@@ -88,8 +94,11 @@ class ResolutionCache:
         self._vectors: dict[str, list[tuple[str, list[float]]]] = {}
 
     # --- level 1: exact ----------------------------------------------------
+    def _scoped(self, cache_key: str) -> str:
+        return f"{self.namespace}:{cache_key}" if self.namespace else cache_key
+
     def get_exact(self, cache_key: str) -> dict[str, Any] | None:
-        item = self.kv.get(store.address_pk(cache_key), "RESOLUTION")
+        item = self.kv.get(store.address_pk(self._scoped(cache_key)), "RESOLUTION")
         if item is None:
             return None
         payload = item.get("resolution")
@@ -185,7 +194,7 @@ class ResolutionCache:
         would freeze a question in place and re-ask it forever.
         """
         self.kv.put(
-            store.address_pk(cache_key),
+            store.address_pk(self._scoped(cache_key)),
             "RESOLUTION",
             {
                 "resolution": resolution,

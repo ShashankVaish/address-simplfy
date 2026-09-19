@@ -153,6 +153,17 @@ class Calibrator:
     def is_fitted(self) -> bool:
         return bool(self.knots)
 
+    @property
+    def fingerprint(self) -> str:
+        """Short stable id of the fitted map; "identity" when unfitted."""
+        if not self.knots:
+            return "identity"
+        import hashlib
+        import json
+
+        digest = hashlib.sha256(json.dumps(self.knots).encode()).hexdigest()
+        return digest[:12]
+
     def __call__(self, raw: float) -> float:
         if not self.knots:
             # Identity until the fit exists. Reported honestly rather than
