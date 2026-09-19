@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="PataSetu — address resolution for India. Messy address in; structured fields, coordinate, DIGIPIN and a calibrated confidence out. Built on AWS for First Commit.">
+<title>PataSetu — address resolution for India</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #f6f1e7;
+    --surface: #ffffff;
+    --surface-2: #fbf9f4;
+    --ink: #111827;
+    --ink-2: #4b5060;
+    --muted: #7a7e8a;
+    --rule: #e3ddd0;
+    --rule-strong: #cfc8b8;
+    --saffron: #e87d1e;
+    --saffron-soft: rgba(232, 125, 30, 0.10);
+    --leaf: #1f7a4d;
+    --leaf-soft: rgba(31, 122, 77, 0.10);
+    --red: #b42318;
+    --red-soft: rgba(180, 35, 24, 0.08);
+    --code-bg: #111827;
+    --code-ink: #e9e6df;
+    --code-dim: #8b91a3;
+    --shadow: 0 1px 0 rgba(17, 24, 39, 0.04), 0 8px 24px -16px rgba(17, 24, 39, 0.25);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12141a;
+      --surface: #191c24;
+      --surface-2: #1f232c;
+      --ink: #ecebe6;
+      --ink-2: #b9bcc6;
+      --muted: #868b99;
+      --rule: #2a2e39;
+      --rule-strong: #3a3f4d;
+      --saffron: #f08d33;
+      --saffron-soft: rgba(240, 141, 51, 0.14);
+      --leaf: #3fa66f;
+      --leaf-soft: rgba(63, 166, 111, 0.14);
+      --red: #f0776b;
+      --red-soft: rgba(240, 119, 107, 0.12);
+      --code-bg: #0c0e13;
+      --code-ink: #e9e6df;
+      --code-dim: #7d8394;
+      --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -16px rgba(0,0,0,0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12141a;
+    --surface: #191c24;
+    --surface-2: #1f232c;
+    --ink: #ecebe6;
+    --ink-2: #b9bcc6;
+    --muted: #868b99;
+    --rule: #2a2e39;
+    --rule-strong: #3a3f4d;
+    --saffron: #f08d33;
+    --saffron-soft: rgba(240, 141, 51, 0.14);
+    --leaf: #3fa66f;
+    --leaf-soft: rgba(63, 166, 111, 0.14);
+    --red: #f0776b;
+    --red-soft: rgba(240, 119, 107, 0.12);
+    --code-bg: #0c0e13;
+    --code-ink: #e9e6df;
+    --code-dim: #7d8394;
+    --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -16px rgba(0,0,0,0.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--saffron); outline-offset: 2px; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  .wrap { max-width: 1120px; margin-inline: auto; padding-inline: 20px; }
+
+  /* eyebrow: the reference's SHIP IT tag */
+  .tag {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--saffron);
+  }
+  .tag.leaf { color: var(--leaf); }
+  .tag.muted { color: var(--muted); }
+
+  /* top bar */
+  .top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; text-decoration: none; }
+  .brand b { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
+  .brand span { font-size: 12px; color: var(--muted); }
+  .nav { display: flex; gap: 4px; }
+  .nav a { text-decoration: none; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; }
+  .nav a:hover { background: var(--surface); color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 600; text-decoration: none;
+    padding: 10px 16px; border-radius: 10px; border: 1px solid var(--ink);
+    background: var(--ink); color: var(--ground);
+    transition: transform .15s ease, background .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
+  .btn.ghost:hover { background: var(--surface); }
+  .btn.sm { padding: 7px 12px; font-size: 13px; }
+
+  /* hero */
+  .hero { padding-block: 72px 56px; border-bottom: 1px solid var(--rule); }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+  .hero h1 { font-size: clamp(38px, 5.2vw, 60px); font-weight: 800; line-height: 1.04; letter-spacing: -0.03em; margin-top: 18px; }
+  .hero h1 em { font-style: normal; color: var(--saffron); }
+  .hero .lede { margin-top: 20px; font-size: 18px; color: var(--ink-2); max-width: 52ch; }
+  .hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hero .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 26px; font-size: 13px; color: var(--muted); }
+  .hero .meta b { color: var(--ink); font-weight: 600; }
+
+  /* terminal */
+  .term {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 14px; box-shadow: var(--shadow);
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; line-height: 1.6;
+    overflow: hidden; border: 1px solid rgba(255,255,255,0.06);
+  }
+  .term .bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--code-dim); font-size: 11px; }
+  .term .bar .dots { display: flex; gap: 6px; }
+  .term .bar .dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.14); display: block; }
+  .term pre { margin: 0; padding: 16px 18px; white-space: pre-wrap; word-break: break-word; min-height: 330px; }
+  .term .k { color: #9fb4ff; }
+  .term .s { color: #ffd39a; }
+  .term .n { color: #b8f0c8; }
+  .term .c { color: var(--code-dim); }
+  .term .ok { color: #7ee2a8; font-weight: 600; }
+  .term .cursor { display: inline-block; width: 7px; height: 14px; background: var(--saffron); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .term .foot { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 18px; border-top: 1px solid rgba(255,255,255,0.08); color: var(--code-dim); font-size: 11px; }
+  .term .foot b { color: var(--code-ink); font-weight: 500; }
+
+  /* sections */
+  section { padding-block: 64px; border-bottom: 1px solid var(--rule); }
+  .head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px 48px; align-items: end; margin-bottom: 36px; }
+  .head h2 { font-size: clamp(26px, 3vw, 34px); font-weight: 800; letter-spacing: -0.025em; line-height: 1.12; margin-top: 10px; }
+  .head p { color: var(--ink-2); font-size: 16px; max-width: 62ch; }
+
+  /* ledger tables (the reference look) */
+  .ledger { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+  .ledger-wrap { overflow-x: auto; border-radius: 12px; }
+  .ledger th, .ledger td { text-align: left; padding: 14px 18px; border-top: 1px solid var(--rule); vertical-align: top; font-size: 14.5px; }
+  .ledger th { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-top: 0; background: var(--surface-2); }
+  .ledger td.mono, .ledger th.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13.5px; }
+  .ledger td .sub { display: block; color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .ledger tr:hover td { background: var(--surface-2); }
+  .num { font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.leaf { color: var(--leaf); background: var(--leaf-soft); }
+  .pill.saffron { color: var(--saffron); background: var(--saffron-soft); }
+  .pill.red { color: var(--red); background: var(--red-soft); }
+  .pill.muted { color: var(--muted); }
+
+  /* problem: three costs */
+  .costs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .costs > div { padding: 22px 22px 24px; border-left: 1px solid var(--rule); }
+  .costs > div:first-child { border-left: 0; }
+  .costs h3 { font-size: 17px; font-weight: 700; margin-top: 10px; }
+  .costs p { color: var(--ink-2); font-size: 14.5px; margin-top: 8px; }
+  .address {
+    margin-top: 28px; padding: 18px 20px; border: 1px dashed var(--rule-strong); border-radius: 12px; background: var(--surface-2);
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 14px; color: var(--ink);
+  }
+  .address .c { color: var(--muted); }
+
+  /* pipeline rail */
+  .rail { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .stage {
+    text-align: left; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 12px 14px;
+    cursor: pointer; font: inherit; color: inherit; transition: border-color .15s ease, transform .15s ease;
+  }
+  .stage:hover { border-color: var(--rule-strong); transform: translateY(-1px); }
+  .stage[aria-selected="true"] { border-color: var(--saffron); box-shadow: inset 0 0 0 1px var(--saffron); }
+  .stage .id { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--saffron); letter-spacing: 0.06em; }
+  .stage .name { display: block; font-weight: 600; font-size: 13.5px; margin-top: 4px; }
+  .stage .ms { display: block; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .detail { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px 40px; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 24px 26px; }
+  .detail h3 { font-size: 20px; font-weight: 700; }
+  .detail p { color: var(--ink-2); margin-top: 8px; font-size: 15px; }
+  .detail .aws { border-left: 1px solid var(--rule); padding-left: 28px; }
+  .detail .aws dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 10px 0 0; font-size: 14px; }
+  .detail .aws dt { color: var(--muted); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; padding-top: 2px; }
+  .detail .aws dd { margin: 0; }
+  .lat { margin-top: 14px; display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .lat b { color: var(--ink); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; }
+
+  /* results */
+  .results { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 22px 24px; }
+  .panel h3 { font-size: 16px; font-weight: 700; }
+  .panel .note { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 18px; border-top: 1px solid var(--rule); }
+  .stats > div { padding: 14px 0 4px; border-right: 1px solid var(--rule); padding-right: 14px; }
+  .stats > div + div { padding-left: 14px; }
+  .stats > div:last-child { border-right: 0; }
+  .stats .v { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+  .stats .v small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .stats .l { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .arrow { color: var(--saffron); }
+  .chart { width: 100%; height: auto; display: block; margin-top: 16px; }
+  .chart text { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; fill: var(--muted); }
+  .chart .axis { stroke: var(--rule-strong); }
+  .chart .grid { stroke: var(--rule); }
+  .chart .line { fill: none; stroke: var(--leaf); stroke-width: 2.5; }
+  .chart .dot { fill: var(--leaf); }
+  .chart .lbl { fill: var(--leaf); font-weight: 600; }
+  .honest { margin-top: 24px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .honest > div { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; font-size: 12.5px; }
+  .honest .t { color: var(--muted); }
+  .honest .v { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 600; margin-top: 4px; font-size: 14px; }
+  .honest .miss .v { color: var(--red); }
+  .honest .met .v { color: var(--leaf); }
+
+  /* cedar demo */
+  .cedar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+  .cedar .panel label { display: block; font-size: 13px; font-weight: 600; margin-top: 18px; }
+  .cedar input[type="range"] { width: 100%; accent-color: var(--saffron); margin-top: 8px; }
+  .cedar .ticks { display: flex; justify-content: space-between; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .cedar .ticks .in { color: var(--leaf); }
+  .cedar .row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 14px; }
+  .cedar .row label { margin: 0; display: inline-flex; gap: 8px; align-items: center; font-weight: 500; }
+  .verdict { border-radius: 12px; padding: 22px 24px; border: 1px solid var(--rule); background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
+  .verdict .d { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .verdict.allow { border-color: var(--leaf); } .verdict.allow .d { color: var(--leaf); }
+  .verdict.deny { border-color: var(--red); } .verdict.deny .d { color: var(--red); }
+  .verdict .why { color: var(--ink-2); font-size: 14.5px; }
+  .verdict .pol { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .policy { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 14px 16px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11.5px; line-height: 1.55; overflow-x: auto; }
+  .policy .c { color: var(--code-dim); } .policy .k { color: #9fb4ff; } .policy .s { color: #ffd39a; }
+
+  /* aws */
+  .stack-note { margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+  /* use cases + impact */
+  .cases { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .cases > div { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 20px; }
+  .cases h3 { font-size: 16px; font-weight: 700; margin-top: 8px; }
+  .cases p { color: var(--ink-2); font-size: 14px; margin-top: 8px; }
+  .impact { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .impact > div { padding: 22px; border-left: 1px solid var(--rule); }
+  .impact > div:first-child { border-left: 0; }
+  .impact .v { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+  .impact .l { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+  .impact .s { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* footer */
+  footer { padding-block: 40px 56px; color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
+  footer a { color: var(--ink-2); }
+
+  @media (max-width: 960px) {
+    .hero .wrap, .head, .results, .cedar, .detail { grid-template-columns: 1fr; }
+    .detail .aws { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); padding-top: 18px; }
+    .rail { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .honest { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cases, .impact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .impact > div:nth-child(3) { border-left: 0; }
+    .impact > div:nth-child(n+3) { border-top: 1px solid var(--rule); }
+    .nav { display: none; }
+  }
+  @media (max-width: 600px) {
+    .hero { padding-block: 44px 40px; }
+    .costs { grid-template-columns: 1fr; }
+    .costs > div { border-left: 0; border-top: 1px solid var(--rule); }
+    .costs > div:first-child { border-top: 0; }
+    .rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .honest { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stats { grid-template-columns: 1fr; }
+    .stats > div { border-right: 0; border-bottom: 1px solid var(--rule); padding: 12px 0; }
+    .stats > div + div { padding-left: 0; }
+    .cases, .impact { grid-template-columns: 1fr; }
+    .impact > div { border-left: 0; border-top: 1px solid var(--rule); }
+    .impact > div:first-child { border-top: 0; }
+    .term pre { min-height: 280px; font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .term .cursor { animation: none; }
+    .btn, .stage { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><b>PataSetu</b><span>address resolution for India</span></a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#different">What's different</a>
+      <a href="#results">Results</a>
+      <a href="#guardrails">Guardrails</a>
+      <a href="#aws">AWS stack</a>
+    </nav>
+    <a class="btn sm" href="https://github.com/ShashankVaish/address-simplfy" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <div class="tag">SHIP IT · deployed in ap-south-1 · First Commit, Bharat Builds Tour</div>
+      <h1>The address stops being <em>a phone call.</em></h1>
+      <p class="lede">Messy Indian address in — structured fields, a coordinate, a DIGIPIN and a confidence score that means what it says, out. When PataSetu genuinely doesn't know, it asks the customer exactly one question. Every confirmed delivery teaches it the neighbourhood.</p>
+      <div class="ctas">
+        <a class="btn" href="#how">See how it works</a>
+        <a class="btn ghost" href="#results">Read the measured results</a>
+      </div>
+      <div class="meta">
+        <span><b>446</b> tests, no network</span>
+        <span><b>0 m</b> median geocode error with the landmark graph</span>
+        <span><b>1</b> confirmed delivery to learn a locality</span>
+      </div>
+    </div>
+    <div class="term" aria-label="Live request and response">
+      <div class="bar"><div class="dots"><i></i><i></i><i></i></div><span>POST /v1/resolve · live API</span></div>
+      <pre id="term"></pre>
+      <div class="foot"><span>stack <b>E</b></span><span>model <b>nova-lite → claude</b></span><span>graph <b>OpenSearch Serverless</b></span><span>cache hit <b>≈12 ms</b></span></div>
+    </div>
+  </div>
+</section>
+
+<section id="problem">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">The problem</div><h2>An Indian address is directions for a human.</h2></div>
+      <p>Large parts of India have no systematic street numbering, so people write landmarks. Every last-mile system that fights this loses three times.</p>
+    </div>
+    <div class="costs">
+      <div><div class="tag muted">Cost 1</div><h3>The rider phones the customer</h3><p>On almost every order. Before leaving, on the way, and again at the gate.</p></div>
+      <div><div class="tag muted">Cost 2</div><h3>The first attempt fails</h3><p>Fuel, rider time, a second dispatch — and a customer who is now annoyed.</p></div>
+      <div><div class="tag muted">Cost 3</div><h3>The knowledge evaporates</h3><p>"Gate 3, ask the guard, lift on the left" dies in the rider's head. The next rider starts from zero.</p></div>
+    </div>
+    <div class="address" aria-label="Example address">"h no 14 behind shiv mandir near gupta general store opp water tank ramesh nagar delhi 110015 call before coming" <span class="c">← a real one. Landmark-based addressing isn't laziness; the system has to work with it.</span></div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">How it works</div><h2>Eight stages. Deterministic first, model last.</h2></div>
+      <p>Retrieval places the address; the model only structures what retrieval found. Click a stage — the latency budget is the real one from the architecture doc, p50 warm.</p>
+    </div>
+    <div class="rail" role="tablist" aria-label="Pipeline stages" id="rail"></div>
+    <div class="detail" id="detail"></div>
+  </div>
+</section>
+
+<section id="different">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">What's different</div><h2>Not an address cleaner.</h2></div>
+      <p>Five decisions that separate a resolution engine from a regex with a model bolted on.</p>
+    </div>
+    <div class="ledger-wrap"><table class="ledger">
+      <thead><tr><th style="width:26%">Decision</th><th>What it means in practice</th><th style="width:22%">Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td><b>DIGIPIN is the canonical output</b><span class="sub mono">39JJTT4565 · ~4 m cell</span></td><td>India Post's national geocode, computed locally from the coordinate with the vendored official encoder. No API, no cost, works offline on a rider's phone.</td><td>Ten differently-worded addresses that land in the same cell are provably the same doorstep — a free deduplication key.</td></tr>
+        <tr><td><b>The landmark graph learns</b><span class="sub mono">EventBridge → learner</span></td><td>A confirmed delivery bumps each landmark's observation count, nudges its coordinate toward the rider's tap (damped by how often it's been seen), and learns the customer's spelling as an alias.</td><td>Measured, not asserted: one confirmed delivery takes a locality from 6% to 81% graph-geocoded.</td></tr>
+        <tr><td><b>One question, in the customer's script</b><span class="sub mono">Strands agent · Nova Lite</span></td><td>Devanagari in, Hindi out. The question targets the field that unlocks the most confidence. A template fallback exists and is labelled — a template never takes credit for the agent.</td><td>"Flat ya makaan number kya hai?" beats "please confirm your address".</td></tr>
+        <tr><td><b>Cedar guards every message</b><span class="sub mono">policies/contact.cedar</span></td><td>Quiet hours, one message per order, opt-out as a forbid no principal can override. A denial is never a silent drop — it lands in the review queue with the policy id.</td><td>An automated system that texts customers needs a hard boundary. "We'll be careful" isn't one.</td></tr>
+        <tr><td><b>A real evaluation harness</b><span class="sub mono">eval/ · 2 splits · 7 metrics</span></td><td>Gold set from real public addresses, cumulative ablation A→E, isotonic calibration with cross-validated ECE, a held-out test split run exactly once.</td><td>The results page says which targets were missed, and why.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">Measured</div><h2>What each stage is actually worth.</h2></div>
+      <p>Cumulative configurations on the same 150-address gold set, rows B–E measured against the deployed stack with Bedrock. Dev split during development; test split held out and run once at the end.</p>
+    </div>
+    <div class="results">
+      <div class="panel">
+        <h3>Ablation — median geocode error and coverage</h3>
+        <p class="note">dev / test · "coverage" is the share of addresses that got any coordinate</p>
+        <div class="ledger-wrap" style="margin-top:14px"><table class="ledger">
+          <thead><tr><th>Config</th><th>Adds</th><th class="num">Geo median</th><th class="num">Coverage</th><th class="num">Auto-resolve</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">A</td><td>Regex + gazetteer</td><td class="num mono">969 / 491 m</td><td class="num mono">70 / 64%</td><td class="num mono">0 / 0%</td></tr>
+            <tr><td class="mono">B</td><td>+ one LLM call, no retrieval</td><td class="num mono">969 / 491 m</td><td class="num mono">70 / 64%</td><td class="num mono">0 / 0%</td></tr>
+            <tr><td class="mono">C</td><td>+ BM25 landmark retrieval</td><td class="num mono"><b style="color:var(--leaf)">0 / 0 m</b></td><td class="num mono">97 / 94%</td><td class="num mono">43 / 58%</td></tr>
+            <tr><td class="mono">D</td><td>+ vector + geo signals</td><td class="num mono">0 / 0 m</td><td class="num mono">97 / 95%</td><td class="num mono">22 / 25%</td></tr>
+            <tr><td class="mono">E</td><td>+ warmed graph (full system)</td><td class="num mono">0 / 0 m</td><td class="num mono">97 / 95%</td><td class="num mono">23 / 26%</td></tr>
+          </tbody>
+        </table></div>
+        <div class="stats">
+          <div><div class="v">969 <span class="arrow">→</span> 0<small>m</small></div><div class="l">median geocode error once retrieval is on</div></div>
+          <div><div class="v">0.235 <span class="arrow">→</span> 0.032</div><div class="l">calibration error, raw → isotonic, 2-fold CV</div></div>
+          <div><div class="v">1<small>of 7</small></div><div class="l">targets met on the held-out split — stated, not hidden</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Learning curve</h3>
+        <p class="note">Empty graph, 600 addresses across 36 localities fed one at a time. Share geocoded from the graph, by how many addresses that locality had seen before.</p>
+        <svg class="chart" viewBox="0 0 420 240" role="img" aria-label="Learning curve: graph-hit rate rises from 5.6 percent with zero addresses seen to 80.6 percent after one, then stays around 75 to 81 percent">
+          <line class="grid" x1="44" y1="30" x2="400" y2="30"/><text x="38" y="34" text-anchor="end">100%</text>
+          <line class="grid" x1="44" y1="72" x2="400" y2="72"/><text x="38" y="76" text-anchor="end">75%</text>
+          <line class="grid" x1="44" y1="114" x2="400" y2="114"/><text x="38" y="118" text-anchor="end">50%</text>
+          <line class="grid" x1="44" y1="156" x2="400" y2="156"/><text x="38" y="160" text-anchor="end">25%</text>
+          <line class="axis" x1="44" y1="198" x2="400" y2="198"/><text x="38" y="202" text-anchor="end">0%</text>
+          <polyline class="line" points="74,188.6 136,62.6 198,69.6 260,62.1 322,69.6 384,73.2"/>
+          <circle class="dot" cx="74" cy="188.6" r="4"/><circle class="dot" cx="136" cy="62.6" r="4"/><circle class="dot" cx="198" cy="69.6" r="4"/><circle class="dot" cx="260" cy="62.1" r="4"/><circle class="dot" cx="322" cy="69.6" r="4"/><circle class="dot" cx="384" cy="73.2" r="4"/>
+          <text class="lbl" x="74" y="178" text-anchor="middle">5.6%</text>
+          <text class="lbl" x="136" y="52" text-anchor="middle">80.6%</text>
+          <text x="74" y="218" text-anchor="middle">0</text><text x="136" y="218" text-anchor="middle">1</text><text x="198" y="218" text-anchor="middle">2–3</text><text x="260" y="218" text-anchor="middle">4–7</text><text x="322" y="218" text-anchor="middle">8–15</text><text x="384" y="218" text-anchor="middle">16+</text>
+          <text x="222" y="236" text-anchor="middle">addresses already seen in this locality</text>
+        </svg>
+        <p class="note" style="margin-top:12px">A step, not a slope. One delivery teaches the temple; the next address behind the same temple is placed exactly. Median error: 1,221 m → 0 m.</p>
+      </div>
+    </div>
+    <div class="honest" aria-label="Targets versus actuals on the test split">
+      <div class="met"><div class="t">Geo median · &lt;150 m</div><div class="v">0 m</div></div>
+      <div class="miss"><div class="t">Field F1 · &gt;0.90</div><div class="v">0.73</div></div>
+      <div class="miss"><div class="t">Exact match · &gt;0.75</div><div class="v">0.45</div></div>
+      <div class="miss"><div class="t">Auto-resolve · &gt;80%</div><div class="v">26%</div></div>
+      <div class="miss"><div class="t">Clarify · &lt;15%</div><div class="v">74%</div></div>
+      <div class="miss"><div class="t">Precision@0.80 · &gt;95%</div><div class="v">74%</div></div>
+      <div class="miss"><div class="t">p95 latency · &lt;1.2 s</div><div class="v">2.7 s</div></div>
+    </div>
+    <p class="stack-note">The geocode target is the one the landmark graph exists for, and it's met with room to spare. The field targets are bounded by locality recall (0.53), which neither the regex nor Nova Lite solves yet; the resolution-rate targets follow from it. Latency is the Claude escalation. Full tables, per-field numbers and the reliability diagram are in <code class="mono">docs/results/</code>.</p>
+  </div>
+</section>
+
+<section id="guardrails">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">Guardrails</div><h2>Before any message goes out, Cedar decides.</h2></div>
+      <p>Policy is a text file — auditable, testable, reviewable without a deploy. Try the demo beat: it's eleven at night for this customer.</p>
+    </div>
+    <div class="cedar">
+      <div class="panel">
+        <h3>The situation</h3>
+        <p class="note">Same rules as <span class="mono">policies/contact.cedar</span>, evaluated here for illustration. The deployed authorizer runs the real Cedar engine.</p>
+        <label for="hour">Customer's local time — <span class="mono" id="hourLabel">23:00</span></label>
+        <input type="range" id="hour" min="0" max="23" value="23" aria-label="Local hour">
+        <div class="ticks"><span>00</span><span>03</span><span>06</span><span class="in">09</span><span class="in">12</span><span class="in">15</span><span class="in">18</span><span>21</span></div>
+        <label for="conf">Resolution confidence — <span class="mono" id="confLabel">0.55</span></label>
+        <input type="range" id="conf" min="0" max="100" value="55" aria-label="Confidence">
+        <div class="row">
+          <label><input type="checkbox" id="sent"> A message was already sent</label>
+          <label><input type="checkbox" id="opt"> Customer opted out</label>
+          <label><input type="checkbox" id="op"> Asked by a human operator</label>
+        </div>
+      </div>
+      <div>
+        <div class="verdict deny" id="verdict">
+          <div class="tag muted">Decision</div>
+          <div class="d" id="vd">DENY</div>
+          <div class="why" id="vw">no permit matched: outside contact hours (local time 23:00; allowed 09:00–20:00)</div>
+          <div class="pol" id="vp"></div>
+        </div>
+        <pre class="policy" style="margin-top:12px"><span class="c">// A forbid beats every permit. No principal named: nobody overrides an opt-out.</span>
+<span class="k">@id</span>(<span class="s">"contact-opted-out"</span>)
+<span class="k">forbid</span>(principal, action == Action::<span class="s">"contactCustomer"</span>, resource in OrderGroup::<span class="s">"opted_out"</span>);
+
+<span class="k">@id</span>(<span class="s">"contact-allowed-window"</span>)
+<span class="k">permit</span>(principal == Agent::<span class="s">"clarifier"</span>, action == Action::<span class="s">"contactCustomer"</span>, resource in OrderGroup::<span class="s">"pending_resolution"</span>)
+<span class="k">when</span> { context.confidence_pct &lt; 80 &amp;&amp; context.messages_sent_for_order == 0 &amp;&amp; context.local_hour &gt;= 9 &amp;&amp; context.local_hour &lt;= 20 &amp;&amp; context.channel == <span class="s">"sms"</span> };</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="aws">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">AWS stack</div><h2>Every service earns its place.</h2></div>
+      <p>Nothing here is padding. Each row is a service the deployed stack calls today, with its exact job. Provisioned with AWS SAM; Lambda on Graviton, Python 3.12.</p>
+    </div>
+    <div class="ledger-wrap"><table class="ledger">
+      <thead><tr><th style="width:28%">Service</th><th>Exact role</th><th style="width:14%">Status</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Amazon Bedrock</td><td>Nova Lite structures fields; Claude Sonnet 5 on escalation only. Titan Text Embeddings v2 for landmark and query vectors.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Strands Agents SDK</td><td>The clarification agent — one question, structured output, in the customer's script.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Cedar</td><td>Authorisation for outreach and for overwriting a stored address. Fails closed.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">OpenSearch Serverless</td><td>The landmark graph: BM25 + kNN + geo_distance in one round trip, fused with reciprocal rank fusion.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Lambda, API Gateway</td><td>HTTP API in front of five functions: resolver, queue, authorizer, clarifier, learner. Scales to zero between runs.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">DynamoDB</td><td>Single table: resolution cache, order state, review queue (sparse GSI), audit timeline.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">EventBridge</td><td><span class="mono">AddressNeedsInfo</span> → clarifier; <span class="mono">DeliveryConfirmed</span> → learner. Learning never sits in the request path.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Amazon Location Service</td><td>Geocoding fallback when the graph can't place the doorstep.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Cognito</td><td>JWT verification for the operator routes — the review queue and the authorizer.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">CloudWatch, S3</td><td>Structured logs with a correlation id per request; embedded-metric-format dashboard; S3 for bulk data and artefacts.</td><td><span class="pill leaf">deployed</span></td></tr>
+        <tr><td class="mono">Step Functions, SNS, Transcribe</td><td>Clarification workflow with callback, SMS delivery, rider voice notes — designed, not built in the four days.</td><td><span class="pill muted">roadmap</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="stack-note">Bedrock in Mumbai runs through cross-region inference profiles (<span class="mono">apac.</span> / <span class="mono">global.</span>); OpenSearch Serverless is the only component that bills while idle, so the stack has an <span class="mono">EnableOpenSearch</span> switch for nights. The whole thing runs on a $120 credit.</p>
+  </div>
+</section>
+
+<section id="uses">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">Where it fits</div><h2>Anywhere a rider is about to make a call.</h2></div>
+      <p>One API, one contract. The console is for the operations team; the resolver is for the platform.</p>
+    </div>
+    <div class="cases">
+      <div><div class="tag muted">Quick commerce</div><h3>10-minute delivery</h3><p>The order is placed once and delivered dozens of times. The second delivery to "behind Shiv Mandir" should not need the phone.</p></div>
+      <div><div class="tag muted">E-commerce</div><h3>Returns and repeat orders</h3><p>The same doorstep, written five ways over a year, resolves to one DIGIPIN cell — one record, not five.</p></div>
+      <div><div class="tag muted">Logistics</div><h3>Address validation at checkout</h3><p>NEEDS_INFO with a single targeted question at order time is cheaper than a failed attempt tomorrow.</p></div>
+      <div><div class="tag muted">Operations</div><h3>A human queue with reasons</h3><p>Every case that needs a person arrives with the evidence and the policy that sent it — never a silent drop.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="impact">
+  <div class="wrap">
+    <div class="head">
+      <div><div class="tag">Impact</div><h2>Built and measured in four days.</h2></div>
+      <p>Real public data — the All-India Pincode Directory — with the junk filtered and reported. No personal information anywhere in the corpus; phone numbers are stripped before any model or log sees them.</p>
+    </div>
+    <div class="impact">
+      <div><div class="v">≈12 ms</div><div class="l">on a cache hit</div><div class="s">≈700 ms budget on a miss; DIGIPIN and parse are pure CPU</div></div>
+      <div><div class="v">1 tap</div><div class="l">to teach a locality</div><div class="s">5.6% → 80.6% graph geocoding after one confirmed delivery</div></div>
+      <div><div class="v">0</div><div class="l">silent drops</div><div class="s">every Cedar denial lands in the review queue with its policy id</div></div>
+      <div><div class="v">4 m</div><div class="l">DIGIPIN cell</div><div class="s">India Post's national grid, computed locally, works offline</div></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>PataSetu · First Commit, event 01 of the Bharat Builds Tour (WeMakeDevs × AWS) · 17–20 September 2026</span>
+    <span><a href="https://github.com/ShashankVaish/address-simplfy" target="_blank" rel="noopener">Source, evaluation harness and a journal of everything that went wrong</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // ---------- hero: request → response, typed ----------
+  var term = document.getElementById('term');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var raw = 'h no 14 near okhla industrial estate opp greater kailash kalkaji new delhi 110019 call before coming 9876543210';
+  var req = '<span class="c">$ curl -X POST $API/v1/resolve -d \'</span>{ <span class="k">"raw"</span>: <span class="s">"';
+  var res = [
+    '',
+    '<span class="c">// 1.4 s · stack E · apac.amazon.nova-lite-v1:0</span>',
+    '{',
+    '  <span class="k">"status"</span>: <span class="ok">"RESOLVED"</span>,',
+    '  <span class="k">"confidence"</span>: <span class="n">0.88</span>,   <span class="c">// isotonic, from raw 0.85</span>',
+    '  <span class="k">"structured"</span>: {',
+    '    <span class="k">"building"</span>: <span class="s">"14"</span>, <span class="k">"locality"</span>: <span class="s">"Kalkaji"</span>, <span class="k">"city"</span>: <span class="s">"New Delhi"</span>,',
+    '    <span class="k">"district"</span>: <span class="s">"South East"</span>, <span class="k">"state"</span>: <span class="s">"Delhi"</span>, <span class="k">"pincode"</span>: <span class="s">"110019"</span>,',
+    '    <span class="k">"landmarks"</span>: [',
+    '      { <span class="s">"Okhla Industrial Estate"</span>, <span class="k">relation</span>: <span class="s">"near"</span>, <span class="k">matched</span>: <span class="n">LMK#DL#1D116BCDC7</span>, <span class="k">seen</span>: <span class="n">18x</span> },',
+    '      { <span class="s">"Greater Kailash"</span>, <span class="k">relation</span>: <span class="s">"opposite"</span>, <span class="k">matched</span>: <span class="n">LMK#DL#3AA44C6D4C</span> }',
+    '    ]',
+    '  },',
+    '  <span class="k">"geo"</span>: { <span class="n">28.543167</span>, <span class="n">77.257667</span>, <span class="k">source</span>: <span class="s">"landmark_graph"</span>, <span class="k">accuracy_m</span>: <span class="n">209</span> },',
+    '  <span class="k">"digipin"</span>: <span class="ok">"39J4TCM3L3"</span>,',
+    '  <span class="k">"evidence"</span>: [ <span class="s">"stripped 1 phone number before any model or embedding call"</span>, <span class="c">…</span> ],',
+    '  <span class="k">"clarification"</span>: <span class="n">null</span>',
+    '}'
+  ];
+  function showAll() {
+    term.innerHTML = req + raw + '</span>" }<span class="c">\'</span>\n' + res.join('\n');
+  }
+  if (reduce) { showAll(); }
+  else {
+    var i = 0;
+    term.innerHTML = req + '<span class="cursor"></span>';
+    var typer = setInterval(function () {
+      i += 2;
+      term.innerHTML = req + raw.slice(0, i) + '<span class="cursor"></span>';
+      if (i >= raw.length) {
+        clearInterval(typer);
+        term.innerHTML = req + raw + '</span>" }<span class="c">\'</span>\n<span class="c">…</span>';
+        var j = 0;
+        setTimeout(function () {
+          var lines = setInterval(function () {
+            j++;
+            term.innerHTML = req + raw + '</span>" }<span class="c">\'</span>\n' + res.slice(0, j).join('\n');
+            if (j >= res.length) clearInterval(lines);
+          }, 55);
+        }, 500);
+      }
+    }, 18);
+  }
+
+  // ---------- pipeline rail ----------
+  var stages = [
+    { id: 'S0', name: 'Normalise', ms: '~8 ms', what: 'NFKC, abbreviation expansion, Devanagari → Latin transliteration, delivery chatter stripped. A sha256 of the normalised text is the cache key — a hit ends the request here at about 12 ms.', aws: [['store', 'DynamoDB'], ['cache', 'exact hash; near-duplicate by vector in local mode']] },
+    { id: 'S1', name: 'Parse', ms: '< 1 ms', what: 'Deterministic. Phone numbers are stripped before anything else sees the text. The pincode is validated against a gazetteer built from the All-India Pincode Directory; landmark relation phrases ("behind", "ke peeche", "opp") are extracted.', aws: [['compute', 'Lambda, pure CPU'], ['data', 'gazetteer packaged in the layer']] },
+    { id: 'S2', name: 'Retrieve', ms: '~45 ms', what: 'Hybrid candidate retrieval: BM25 on names and aliases, kNN on Titan embeddings, and a geo_distance filter scaled to the pincode\'s real extent — one _msearch round trip, fused with reciprocal rank fusion (k=60).', aws: [['index', 'OpenSearch Serverless (vector)'], ['embeddings', 'Bedrock · Titan Text v2']] },
+    { id: 'S3', name: 'Structure', ms: '~600 ms', what: 'The model sees the parsed fields and the retrieved candidates, never the raw phone number. Strict JSON, one retry. Nova Lite first; Claude Sonnet 5 only when the cheap answer fails validation.', aws: [['models', 'Bedrock · Nova Lite → Claude Sonnet 5'], ['profiles', 'apac. / global. inference profiles']] },
+    { id: 'S4', name: 'Geocode', ms: '0–120 ms', what: 'Cheapest source first: a matched landmark places the doorstep for free; otherwise Amazon Location; otherwise the pincode centroid with its accuracy stated. The source travels with the answer.', aws: [['fallback', 'Amazon Location Service'], ['graph', 'landmark coordinates from OpenSearch']] },
+    { id: 'S5', name: 'DIGIPIN', ms: '< 1 ms', what: 'India Post\'s official encoder, vendored. A pure function of (lat, lng) to a 10-character code for a ~4 m cell — no API, no cost, works offline.', aws: [['compute', 'Lambda, pure CPU'], ['cost', '₹0']] },
+    { id: 'S6', name: 'Score', ms: '~2 ms', what: 'Seven features — field agreement, landmark affinity, geocode source tier, model agreement — through an isotonic calibration map fitted on the deployed system. The number means what it says: cross-validated ECE 0.032.', aws: [['calibration', 'data/calibration.json in the layer'], ['metrics', 'CloudWatch EMF']] },
+    { id: 'S7', name: 'Decide', ms: '< 1 ms', what: 'RESOLVED, NEEDS_INFO with exactly one question in the customer\'s script, or AMBIGUOUS with both candidates. NEEDS_INFO emits AddressNeedsInfo; the clarifier asks Cedar before writing a word.', aws: [['events', 'EventBridge → clarifier'], ['policy', 'Cedar · authorizer']] }
+  ];
+  var rail = document.getElementById('rail'), detail = document.getElementById('detail');
+  stages.forEach(function (s, idx) {
+    var b = document.createElement('button');
+    b.className = 'stage'; b.type = 'button'; b.setAttribute('role', 'tab'); b.id = 'stage-' + s.id;
+    b.setAttribute('aria-selected', idx === 0 ? 'true' : 'false');
+    b.innerHTML = '<span class="id">' + s.id + '</span><span class="name">' + s.name + '</span><span class="ms">' + s.ms + '</span>';
+    b.addEventListener('click', function () { select(idx); });
+    rail.appendChild(b);
+  });
+  function select(idx) {
+    Array.prototype.forEach.call(rail.children, function (c, i) { c.setAttribute('aria-selected', i === idx ? 'true' : 'false'); });
+    var s = stages[idx];
+    detail.innerHTML =
+      '<div><div class="tag">' + s.id + ' · ' + s.ms + ' p50 warm</div><h3>' + s.name + '</h3><p>' + s.what + '</p>' +
+      '<div class="lat"><span>total on a miss <b>≈700 ms</b></span><span>cache hit <b>≈12 ms</b></span><span>measured p95 on E <b>2.7 s</b> (Claude escalations)</span></div></div>' +
+      '<div class="aws"><div class="tag leaf">On AWS</div><dl>' + s.aws.map(function (p) { return '<dt>' + p[0] + '</dt><dd>' + p[1] + '</dd>'; }).join('') + '</dl></div>';
+  }
+  select(0);
+
+  // ---------- cedar demo (mirrors policies/contact.cedar) ----------
+  var hour = document.getElementById('hour'), conf = document.getElementById('conf');
+  var sent = document.getElementById('sent'), opt = document.getElementById('opt'), op = document.getElementById('op');
+  var v = document.getElementById('verdict'), vd = document.getElementById('vd'), vw = document.getElementById('vw'), vp = document.getElementById('vp');
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function chip(id, kind) { return '<span class="pill ' + kind + '">@id("' + id + '")</span>'; }
+  function evaluate() {
+    var h = +hour.value, c = +conf.value;
+    document.getElementById('hourLabel').textContent = pad(h) + ':00';
+    document.getElementById('confLabel').textContent = (c / 100).toFixed(2);
+    var allow = false, why = '', pols = '';
+    if (opt.checked) { why = 'forbidden: the customer has opted out; no principal may override this'; pols = chip('contact-opted-out', 'red'); }
+    else if (op.checked) { allow = true; why = 'permitted: a human operator exercising judgement is not bound by the agent\'s quiet hours'; pols = chip('contact-human-operator', 'leaf'); }
+    else if (c >= 80) { why = 'no permit matched: confidence ' + c + '% is above the clarification threshold (80%); nothing to ask'; }
+    else if (sent.checked) { why = 'no permit matched: a message has already been sent for this order; one per order'; }
+    else if (h < 9 || h > 20) { why = 'no permit matched: outside contact hours (local time ' + pad(h) + ':00; allowed 09:00–20:00)'; }
+    else { allow = true; why = 'permitted: unresolved order, first message, civil hour, approved channel'; pols = chip('contact-allowed-window', 'leaf'); }
+    v.className = 'verdict ' + (allow ? 'allow' : 'deny');
+    vd.textContent = allow ? 'ALLOW' : 'DENY';
+    vw.textContent = why;
+    vp.innerHTML = pols || '<span class="pill muted">no policy matched — Cedar denies by default</span>';
+  }
+  [hour, conf, sent, opt, op].forEach(function (el) { el.addEventListener('input', evaluate); el.addEventListener('change', evaluate); });
+  evaluate();
+})();
+</script>
+
+</body>
+</html>
