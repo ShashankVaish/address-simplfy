@@ -1,0 +1,128 @@
+{
+  "split": "test",
+  "threshold": 0.8,
+  "rows": [
+    {
+      "n": 150,
+      "field_f1": 0.7334,
+      "weighted_f1": 0.7032,
+      "exact_match": 0.4467,
+      "geo_median_m": 490.8,
+      "geo_p90_m": 25122.1,
+      "geo_coverage": 0.64,
+      "auto_resolution_rate": 0.0,
+      "clarification_rate": 1.0,
+      "precision_at_threshold": 0.0,
+      "stack": "A",
+      "label": "Deterministic regex + gazetteer only",
+      "provider": "aws",
+      "index_size": 0,
+      "wall_ms_total": 9240.4,
+      "wall_ms_per_address": 61.603,
+      "latency_p50_ms": 50.34779181005433,
+      "latency_p95_ms": 93.28616608399898,
+      "notes": [
+        "no address reached the 0.80 threshold; precision_at_threshold reported as 0.0 rather than vacuously 1.0",
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "54 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.7139,
+      "weighted_f1": 0.7023,
+      "exact_match": 0.4333,
+      "geo_median_m": 490.8,
+      "geo_p90_m": 25122.1,
+      "geo_coverage": 0.64,
+      "auto_resolution_rate": 0.0,
+      "clarification_rate": 1.0,
+      "precision_at_threshold": 0.0,
+      "stack": "B",
+      "label": "A + single LLM call, no retrieval",
+      "provider": "aws",
+      "index_size": 0,
+      "wall_ms_total": 172284.6,
+      "wall_ms_per_address": 1148.564,
+      "latency_p50_ms": 1137.5115409027785,
+      "latency_p95_ms": 1390.848916140385,
+      "notes": [
+        "no address reached the 0.80 threshold; precision_at_threshold reported as 0.0 rather than vacuously 1.0",
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "54 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.7339,
+      "weighted_f1": 0.719,
+      "exact_match": 0.4667,
+      "geo_median_m": 0.0,
+      "geo_p90_m": 2092.0,
+      "geo_coverage": 0.94,
+      "auto_resolution_rate": 0.58,
+      "clarification_rate": 0.3933,
+      "precision_at_threshold": 0.7753,
+      "stack": "C",
+      "label": "B + BM25 landmark retrieval",
+      "provider": "aws",
+      "index_size": 263,
+      "wall_ms_total": 224289.5,
+      "wall_ms_per_address": 1495.263,
+      "latency_p50_ms": 1343.1387284072116,
+      "latency_p95_ms": 1821.7608750564978,
+      "notes": [
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "9 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.7324,
+      "weighted_f1": 0.7265,
+      "exact_match": 0.4533,
+      "geo_median_m": 0.0,
+      "geo_p90_m": 2886.5,
+      "geo_coverage": 0.9533,
+      "auto_resolution_rate": 0.2533,
+      "clarification_rate": 0.7467,
+      "precision_at_threshold": 0.7632,
+      "stack": "D",
+      "label": "C + vector retrieval + geo filter",
+      "provider": "aws",
+      "index_size": 263,
+      "wall_ms_total": 337927.9,
+      "wall_ms_per_address": 2252.852,
+      "latency_p50_ms": 1836.3588966894895,
+      "latency_p95_ms": 3042.7099170628935,
+      "notes": [
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "7 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    },
+    {
+      "n": 150,
+      "field_f1": 0.7329,
+      "weighted_f1": 0.7284,
+      "exact_match": 0.4533,
+      "geo_median_m": 0.0,
+      "geo_p90_m": 2886.5,
+      "geo_coverage": 0.9533,
+      "auto_resolution_rate": 0.26,
+      "clarification_rate": 0.74,
+      "precision_at_threshold": 0.7436,
+      "stack": "E",
+      "label": "D + warmed landmark graph (full system)",
+      "provider": "aws",
+      "index_size": 263,
+      "wall_ms_total": 318422.6,
+      "wall_ms_per_address": 2122.817,
+      "latency_p50_ms": 1751.9638325902633,
+      "latency_p95_ms": 2662.282792967744,
+      "notes": [
+        "fields with no truth values anywhere in this split, excluded from F1 and exact match as unmeasured: street",
+        "7 of 150 addresses produced no coordinate and are excluded from geocode error (see geo_coverage)"
+      ]
+    }
+  ]
+}

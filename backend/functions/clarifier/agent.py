@@ -19,6 +19,7 @@ turn "one question" into three.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -75,6 +76,9 @@ def _prompt(inp: ClarifierInput) -> str:
     )
 
 
+logger = logging.getLogger(__name__)
+
+
 def build_agent(model_id: str | None = None, region: str | None = None) -> Any:
     """A Strands agent over Bedrock. Raises ImportError if Strands is absent."""
     from strands import Agent
@@ -99,19 +103,32 @@ def generate(inp: ClarifierInput, *, agent: Any | None = None) -> tuple[Question
     fallback = Question(question=inp.fallback_question, language=inp.fallback_language)
     try:
         agent = agent or build_agent()
-    except ImportError:
+    except ImportError as exc:
+        logger.warning(
+            '{"event": "clarifier_fallback", "reason": "sdk missing: %s"}', exc
+        )
         return fallback, "template"
 
     try:
         result = agent.structured_output(Question, _prompt(inp))
-    except Exception:
+    except Exception as exc:
+        # The reason is logged, never the address: the prompt carries fields.
+        logger.warning(
+            '{"event": "clarifier_fallback", "reason": "%s: %s"}',
+            type(exc).__name__,
+            str(exc)[:300].replace('"', "'"),
+        )
         return fallback, "template"
 
     if not isinstance(result, Question):
+        logger.warning('{"event": "clarifier_fallback", "reason": "not a Question"}')
         return fallback, "template"
     text = result.question.strip()
     # Belt and braces on the two rules a model breaks most: one question, no
     # digits that could be a phone number.
     if text.count("?") > 1 or any(ch.isdigit() for ch in text if text.count(ch) > 6):
+        logger.warning(
+            '{"event": "clarifier_fallback", "reason": "output failed rules"}'
+        )
         return fallback, "template"
     return Question(question=text, language=result.language), "agent"

@@ -460,7 +460,11 @@ Resources:
             # MODEL_CHEAP comes from Globals; the agent uses the same Nova Lite
             # profile as the resolver's cheap tier.
             - Effect: Allow
-              Action: [bedrock:InvokeModel, bedrock:Converse, bedrock:ConverseStream]
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:Converse
+                - bedrock:ConverseStream
               Resource:
                 - !Sub "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
