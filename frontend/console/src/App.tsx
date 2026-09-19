@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import Playground from "./pages/Playground";
 import ReviewQueue from "./pages/ReviewQueue";
+import Guardrails from "./pages/Guardrails";
 
 const link = ({ isActive }: { isActive: boolean }) =>
   `rounded-lg px-3 py-1.5 text-sm font-medium transition ${isActive ? "bg-ink text-white" : "text-gray-700 hover:bg-gray-200"}`;
@@ -17,6 +18,7 @@ export default function App() {
           <nav className="flex gap-1">
             <NavLink to="/" end className={link}>Playground</NavLink>
             <NavLink to="/queue" className={link}>Review queue</NavLink>
+            <NavLink to="/guardrails" className={link}>Guardrails</NavLink>
           </nav>
         </div>
       </header>
@@ -24,6 +26,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Playground />} />
           <Route path="/queue" element={<ReviewQueue />} />
+          <Route path="/guardrails" element={<Guardrails />} />
         </Routes>
       </main>
     </div>

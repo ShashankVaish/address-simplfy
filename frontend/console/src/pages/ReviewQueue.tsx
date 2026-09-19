@@ -76,7 +76,9 @@ function QueueRow({
 }) {
   const [draft, setDraft] = useState<Partial<StructuredAddress>>({});
   const age = ageOf(item.created_at);
-  const reason = item.evidence.find((e) => /NEEDS_INFO|AMBIGUOUS|CONFLICT/.test(e)) ?? item.evidence.at(-1) ?? "";
+  // A Cedar denial is the most recent and most actionable reason; it wins.
+  const reason = item.review_reason ?? item.evidence.find((e) => /NEEDS_INFO|AMBIGUOUS|CONFLICT/.test(e)) ?? item.evidence.at(-1) ?? "";
+  const fromCedar = Boolean(item.review_reason);
   const dirty = Object.keys(draft).length > 0;
 
   return (
@@ -89,7 +91,7 @@ function QueueRow({
             <span className="text-xs text-gray-400">· {age}</span>
           </div>
           <div className="mt-1 truncate font-medium">{item.summary || "—"}</div>
-          <div className="mt-0.5 truncate text-xs text-gray-500">{reason}</div>
+          <div className={`mt-0.5 truncate text-xs ${fromCedar ? "font-medium text-red-700" : "text-gray-500"}`}>{reason}</div>
         </div>
         <div className="shrink-0 text-right">
           <div className="font-mono text-sm">{item.confidence?.toFixed(2) ?? "—"}</div>
