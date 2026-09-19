@@ -243,6 +243,63 @@ morning, deploy again with `EnableOpenSearch=true` and re-run
 
 ---
 
+## Step 10 — Deploy Day 3 (the Cedar / learner / clarifier deploy, "D3")
+
+Run this from the Mac, in the `backend` folder, in this exact order. Each
+line waits for the previous one.
+
+```bash
+git pull origin shashank
+sam build
+sam deploy --parameter-overrides   ServingStack=E EnableOpenSearch=true   CheapModelId=apac.amazon.nova-lite-v1:0   StrongModelId=global.anthropic.claude-sonnet-5   AdminPrincipalArn=arn:aws:iam::592404497303:user/patasetu-deploy
+```
+
+`sam build` now also builds three new functions (`authorizer`, `learner`,
+`clarifier`). The clarifier has its own Makefile that downloads Linux/arm64
+wheels, exactly like the layer — no Docker needed. It takes a minute longer
+than before.
+
+When the deploy finishes, the Outputs show a new line, `DashboardUrl`. Open
+it: that is the CloudWatch dashboard for the video.
+
+Then re-load the landmark graph (OpenSearch was recreated, so it is empty):
+
+```bash
+export OPENSEARCH_ENDPOINT=<OpenSearchEndpoint from the Outputs>
+python -m scripts.create_index --load --warm
+```
+
+And run the smoke test — it now checks the Cedar DENY path too:
+
+```bash
+bash scripts/smoke.sh
+```
+
+Every line must say `ok`. The last four are the new ones: 23:00 → DENY,
+opted-out → DENY naming `contact-opted-out`, 14:00 → ALLOW, and the denied
+case sitting in the review queue with the reason.
+
+### Turning on login for the operator screens (optional)
+
+The review queue and the authorizer accept anyone by default so the demo is
+frictionless. To require a Cognito login:
+
+```bash
+sam deploy --parameter-overrides ProtectOperatorRoutes=true
+```
+
+Then `smoke.sh` needs a token: `export OPERATOR_TOKEN=<id token>` before
+running it. The console does not have a login screen yet, so leave this off
+for the video.
+
+### Night: same as always
+
+```bash
+sam deploy --parameter-overrides EnableOpenSearch=false
+```
+
+---
+
 ## Optional — let GitHub deploy automatically
 
 Only if you want `git push` to deploy. Skip for tonight.

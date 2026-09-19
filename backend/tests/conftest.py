@@ -107,6 +107,22 @@ def _warm_gazetteer() -> None:
     gazetteer.warm()
 
 
+@pytest.fixture(autouse=True)
+def _identity_calibrator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must not depend on whether data/calibration.json exists.
+
+    `eval.reliability` writes that file, and `Calibrator.load()` picks it up at
+    runtime. A test that asserts a confidence value would then pass or fail
+    depending on whether someone had run the calibration -- so tests always
+    see raw scores.
+    """
+    from patasetu import confidence
+
+    monkeypatch.setattr(
+        confidence.Calibrator, "load", classmethod(lambda cls, path=None: cls(None))
+    )
+
+
 @pytest.fixture(scope="session")
 def cfg() -> Config:
     return load_config()

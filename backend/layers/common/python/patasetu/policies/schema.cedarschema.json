@@ -1,0 +1,42 @@
+{
+  "": {
+    "entityTypes": {
+      "Agent": { "shape": { "type": "Record", "attributes": {} } },
+      "OrderGroup": { "shape": { "type": "Record", "attributes": {} } },
+      "Order": {
+        "memberOfTypes": ["OrderGroup"],
+        "shape": { "type": "Record", "attributes": {} }
+      }
+    },
+    "actions": {
+      "contactCustomer": {
+        "appliesTo": {
+          "principalTypes": ["Agent"],
+          "resourceTypes": ["Order"],
+          "context": {
+            "type": "Record",
+            "attributes": {
+              "confidence_pct": { "type": "Long" },
+              "messages_sent_for_order": { "type": "Long" },
+              "local_hour": { "type": "Long" },
+              "channel": { "type": "String" }
+            }
+          }
+        }
+      },
+      "overwriteStoredAddress": {
+        "appliesTo": {
+          "principalTypes": ["Agent"],
+          "resourceTypes": ["Order"],
+          "context": {
+            "type": "Record",
+            "attributes": {
+              "confidence_pct": { "type": "Long" },
+              "geo_source": { "type": "String" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

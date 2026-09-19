@@ -23,7 +23,7 @@ if os.path.isdir(
 ):
     sys.path.insert(0, os.path.abspath(_local))
 
-from patasetu import store
+from patasetu import auth, store
 from patasetu.config import load as load_config
 from patasetu.providers import Providers
 
@@ -90,6 +90,13 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
     if method == "OPTIONS":
         return _respond(204, {})
+
+    # Operator routes are protected when the stack says so (NFR-16). The
+    # playground never is; this handler serves only operator routes.
+    try:
+        auth.require_operator(event)
+    except auth.Unauthorized as exc:
+        return _respond(401, {"error": "unauthorized", "detail": str(exc)})
 
     # --- GET /v1/queue --------------------------------------------------------
     if method == "GET" and route.endswith("/queue"):

@@ -328,3 +328,118 @@ place.
 - In `aws` mode the near-duplicate cache is off: it would cost a Titan call on
   every request *before* knowing whether the cache hits. It is on in local mode
   where the embedder is free. The hit rate will decide whether that changes.
+
+---
+
+## Day 3 — Saturday 19 September
+
+### Cedar's evaluator does not tell you *which* policy fired — you have to keep a map
+
+`cedarpy` returns the matching policies as `policy0`, `policy1`, … — their
+position in the policy file — not the `@id("contact-opted-out")` annotation we
+wrote. The demo needs the name on screen ("DENY — `contact-opted-out`"), and so
+does the review-queue row. A quiet-hours denial is subtler still: *no* policy
+matches, because the only permit is scoped to 09:00–20:00 — so the explanation
+has to be derived from the context, not from a policy id. We parse the policy file once at import,
+record the `@id` of each `permit`/`forbid` in order, and translate. A test
+asserts that every policy has an `@id` so a new one cannot silently become
+"policy3" in the UI.
+
+Lesson: an authorization engine answers *allow or deny*. Turning that into an
+*explanation* is application work, and it needs a test.
+
+### The first draft of the opt-out policy was scoped too tightly, and a test caught it
+
+The opt-out `forbid` was written as `principal == Agent::"clarifier"`. It
+passed every clarifier test. Then the test "even an operator cannot contact an
+opted-out customer" failed: an operator was allowed through by the
+`contact-human-operator` permit, and the forbid did not apply to them. Opt-out
+is a customer's decision about *all* contact, so the forbid now uses a bare
+`principal` — it applies to every principal, forever, and no permit can
+override it because Cedar forbids always win.
+
+This is the argument for policy tests over policy review: a human reading the
+file saw "opted out → forbid" and approved it. The test read the actual
+semantics.
+
+### Fail closed means the authorizer must be *allowed to fail*
+
+If `cedarpy` raises (bad schema, engine bug, missing file), the decision is
+DENY with the error attached, and the case goes to the review queue with the
+reason. It is tempting to let an evaluator exception fall through to a 500 —
+but a 500 on the authorizer means the caller decides what to do, and callers
+default to "proceed". A denial with an explanation keeps the customer safe and
+puts the bug on the operator's screen.
+
+### Isotonic calibration on 150 points is coarse, and in-sample ECE lies
+
+Fitting the calibrator on the dev split gives an in-sample ECE of exactly
+0.000 — which is meaningless, because any monotone map fitted on its own data
+does that. The number we report is the **2-fold cross-validated** ECE, 0.057
+(from a raw 0.217). The fitted map has 8 knots; between knots it is a step
+function, so two addresses with confidence 0.70 and 0.77 get the same
+calibrated value. More data would smooth it, and the cloud run on stack E
+will re-fit it.
+
+The threshold search found **no** confidence band with ≥ 10 addresses at 95%
+precision on stack R2. That is correct, not a bug: without a model the
+pipeline rarely gets fields *and* geocode both right, and "correct" for
+calibration requires both. The threshold is a stack E number.
+
+### The learning curve is a step, not a slope
+
+We expected the graph-hit rate to climb gradually with addresses seen per
+locality. It jumps: 5.6% at zero, 80.6% after **one** confirmed delivery, and
+flat from there. One address's landmarks are enough to place the next address
+in the same locality if the two share a landmark — and in a real neighbourhood
+they usually do (the temple, the school, the market). The remaining ~20% share
+no landmark and fall through to the geocoder or pincode centroid.
+
+The honest caveat is in the script's docstring: confirmations use the corpus's
+own ground truth, not riders' GPS. The curve shows the *mechanism* transfers;
+the learner's EMA nudge is what makes it survive noisy fixes.
+
+### An EMA with a shrinking weight, not a replace
+
+The learner's coordinate update is `coord += α · (fix − coord)` with
+`α = max(0.02, 1/(n+1))`. A cold landmark (n=0) jumps to its first
+confirmation; one seen 47 times moves ~1 m. Fixes further than 400 m from the
+landmark are rejected outright (a wrong tap or a wrong match is not evidence
+about the temple), and a fix with reported GPS accuracy worse than 50 m earns
+proportionally less weight. The test that motivated all of it: "one bad fix
+cannot move a warm landmark far".
+
+### SAM cannot attach an API authorizer conditionally
+
+`ProtectOperatorRoutes` is a CloudFormation parameter. A route-level
+`Auth: {Authorizer: !If [...]}` fails at transform time — SAM needs the
+authorizer name literal. So JWT verification lives in the Lambda
+(`patasetu.auth`), keyed off an environment variable that *can* be `!Ref`'d.
+Same deploy, flip the parameter, protection on. The verification is the full
+one — RS256 only, JWKS fetched once per container, `iss`, `aud`/`client_id`,
+`exp` — and misconfiguration fails closed: a protected route with no pool
+configured admits nobody.
+
+### Strands agents need a fallback that is not "retry"
+
+The clarifier asks a Strands agent (Nova Lite) for one question in the
+customer's script, as structured output. If the SDK is not installed, the call
+fails, or the model returns two questions, it falls back to a template
+question built from the missing fields — and records `source: template` on
+the order so the console shows which path ran. A customer waiting for a
+question should never see a stack trace, and an evaluation should never be
+fooled into crediting the agent for a template.
+
+### Smaller notes
+
+- The Cedar context passes confidence as an **integer percentage**. Cedar has
+  no floats, and `confidence > 0.95` in a policy file would not parse. One
+  conversion function, tested at the clamps.
+- `AddressNeedsInfo` carries order and correlation ids only. The clarifier
+  reads the resolution from DynamoDB, so no address text crosses the bus.
+- The clarifier's dependency (`strands-agents`) is built into the function
+  with its own Makefile, not the shared layer — the resolver's cold start
+  should not pay for an SDK it never imports.
+- Tests that read `data/calibration.json` from disk were coupled to a build
+  artefact; an autouse fixture now pins an identity calibrator, and one test
+  explicitly undoes it to check the file path.

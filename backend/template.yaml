@@ -56,8 +56,20 @@ Parameters:
       a laptop (create_index, warm_landmarks --upsert). The Lambda role is
       always allowed; this adds one human. Empty means Lambda only.
 
+  ProtectOperatorRoutes:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Require a Cognito JWT (Authorization: Bearer ...) on /v1/queue,
+      /v1/feedback, /v1/orders and /v1/authorize. Verified inside the Lambda
+      against the user pool's JWKS. The playground (/v1/resolve, /health)
+      stays public either way. Off by default so the first deploy and the
+      smoke test need no login; turn on before the demo (NFR-16).
+
 Conditions:
   UseOpenSearch: !Equals [!Ref EnableOpenSearch, "true"]
+
   HasAdminPrincipal: !Not [!Equals [!Ref AdminPrincipalArn, ""]]
 
 Globals:
@@ -93,6 +105,9 @@ Globals:
           - UseOpenSearch
           - !GetAtt LandmarkCollection.CollectionEndpoint
           - ""
+        PROTECT_OPERATOR_ROUTES: !Ref ProtectOperatorRoutes
+        COGNITO_ISSUER: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+        COGNITO_AUDIENCE: !Ref UserPoolClient
 
 Resources:
   # --- shared code -----------------------------------------------------------
@@ -289,6 +304,7 @@ Resources:
         ThrottlingBurstLimit: 20
         ThrottlingRateLimit: 10
 
+
   ResolverFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -373,6 +389,132 @@ Resources:
             Path: /v1/orders/{order_id}
             Method: GET
 
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-authorizer-${Stage}"
+      CodeUri: functions/authorizer/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+      Events:
+        Authorize:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /v1/authorize
+            Method: POST
+
+  # Learning never sits in the request path: the resolver and the console emit
+  # events, and this function consumes them on its own clock.
+  LearnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "patasetu-learner-${Stage}"
+      CodeUri: functions/learner/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - Statement:
+            - Effect: Allow
+              Action: [aoss:APIAccessAll]
+              Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+      Events:
+        DeliveryConfirmed:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBus
+            Pattern:
+              detail-type: [DeliveryConfirmed, CaseReviewed]
+
+  # The clarifier agent (FR-20): one question, in the customer's script, for a
+  # NEEDS_INFO case -- but only after Cedar says outreach is allowed right now.
+  # Its Strands Agents dependency lives in the function, not the shared layer,
+  # so the resolver's cold start does not pay for it.
+  ClarifierFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+      BuildArchitecture: arm64
+    Properties:
+      FunctionName: !Sub "patasetu-clarifier-${Stage}"
+      CodeUri: functions/clarifier/
+      Handler: app.handler
+      Layers: [!Ref CommonLayer]
+      MemorySize: 512
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - Statement:
+            # MODEL_CHEAP comes from Globals; the agent uses the same Nova Lite
+            # profile as the resolver's cheap tier.
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:Converse, bedrock:ConverseStream]
+              Resource:
+                - !Sub "arn:aws:bedrock:*::foundation-model/amazon.nova-*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+      Events:
+        AddressNeedsInfo:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBus
+            Pattern:
+              detail-type: [AddressNeedsInfo]
+
+  # One dashboard carrying every headline metric. A demo asset, not plumbing.
+  # The metrics are published by the resolver via Embedded Metric Format, so
+  # nothing here is a custom PutMetricData call.
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "patasetu-${Stage}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "metric", "x": 0, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Resolution outcomes (share)", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "ResolutionRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "ClarificationRate", ".", ".", ".", "."],
+                           [".", "AmbiguousRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 8, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Latency p50 / p95 (ms)", "region": "${AWS::Region}", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "LatencyMs", "Stack", "${ServingStack}", "Provider", "aws", {"stat": "p50"}],
+                           ["...", {"stat": "p95"}]]}},
+            {"type": "metric", "x": 16, "y": 0, "width": 8, "height": 6,
+             "properties": {"title": "Cost per address (USD, est.)", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "CostPerAddress", "Stack", "${ServingStack}", "Provider", "aws"]]}},
+            {"type": "metric", "x": 0, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Model cascade: call rate vs escalation rate", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "ModelCallRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "EscalationRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 8, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Cache hit rate", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "CacheHitRate", "Stack", "${ServingStack}", "Provider", "aws"]]}},
+            {"type": "metric", "x": 16, "y": 6, "width": 8, "height": 6,
+             "properties": {"title": "Geocode source: graph vs centroid", "region": "${AWS::Region}", "stat": "Average", "period": 300, "view": "timeSeries",
+               "metrics": [["PataSetu", "GeoFromGraphRate", "Stack", "${ServingStack}", "Provider", "aws"],
+                           [".", "GeoFromCentroidRate", ".", ".", ".", "."]]}},
+            {"type": "metric", "x": 0, "y": 12, "width": 24, "height": 5,
+             "properties": {"title": "Lambda errors and throttles", "region": "${AWS::Region}", "stat": "Sum", "period": 300, "view": "timeSeries",
+               "metrics": [["AWS/Lambda", "Errors", "FunctionName", "patasetu-resolver-${Stage}"],
+                           [".", "Throttles", ".", "."],
+                           [".", "Errors", ".", "patasetu-queue-${Stage}"],
+                           [".", "Errors", ".", "patasetu-authorizer-${Stage}"],
+                           [".", "Errors", ".", "patasetu-learner-${Stage}"]]}}
+          ]
+        }
+
   ResolverLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -418,6 +560,8 @@ Outputs:
     Value: !If [UseOpenSearch, !GetAtt LandmarkCollection.CollectionEndpoint, ""]
   PlaceIndexName:
     Value: !Ref PlaceIndex
+  DashboardUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=patasetu-${Stage}"
   UserPoolId:
     Value: !Ref UserPool
   UserPoolClientId:

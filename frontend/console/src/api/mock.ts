@@ -7,7 +7,7 @@
  * sees in mock mode is what the demo video will show.
  */
 
-import type { QueueItem, QueueResponse, Resolution } from "./types";
+import type { AuthorizeRequest, AuthzDecision, QueueItem, QueueResponse, Resolution } from "./types";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -139,4 +139,70 @@ export async function mockFeedback(order_id: string, action: string): Promise<Qu
   item.updated_at = new Date().toISOString();
   item.reviewed_by = "you";
   return item;
+}
+
+/**
+ * The contact policy, evaluated by hand. Mirrors policies/contact.cedar so the
+ * demo behaves identically offline; the backend runs the real Cedar engine
+ * and the policy tests are what keep the two in step.
+ */
+export async function mockAuthorize(req: AuthorizeRequest): Promise<AuthzDecision> {
+  await wait(250);
+  const pct = Math.round(Math.max(0, Math.min(1, req.confidence)) * 100);
+  const context = {
+    confidence_pct: pct,
+    messages_sent_for_order: req.messages_sent_for_order,
+    local_hour: req.local_hour,
+    channel: req.channel,
+  };
+  const base = {
+    action: req.action,
+    principal: `Agent::"${req.principal}"`,
+    resource: `Order::"${req.order_id}"`,
+    errors: [] as string[],
+    context,
+  };
+  const deny = (reason: string, matched: string[] = []): AuthzDecision => ({
+    ...base,
+    decision: "DENY",
+    allowed: false,
+    matched_policies: matched,
+    reason,
+  });
+  const allow = (matched: string[]): AuthzDecision => ({
+    ...base,
+    decision: "ALLOW",
+    allowed: true,
+    matched_policies: matched,
+    reason: "permitted by " + matched.join(", "),
+  });
+
+  if (req.opted_out) return deny("the customer has opted out of contact; no principal may override this", ["contact-opted-out"]);
+  if (req.principal === "operator") {
+    return allow(["contact-human-operator"]);
+  }
+  let reason: string | null = null;
+  if (pct >= 80) reason = `confidence ${pct}% is above the clarification threshold (80%); nothing to ask`;
+  else if (req.messages_sent_for_order > 0) reason = `a message has already been sent for this order (${req.messages_sent_for_order}); one per order`;
+  else if (req.local_hour < 9 || req.local_hour > 20) reason = `${String(req.local_hour).padStart(2, "0")}:00 is outside contact hours (09:00-20:00 local time)`;
+  else if (req.channel !== "sms") reason = `channel '${req.channel}' is not an approved channel`;
+  if (reason) {
+    const existing = QUEUE.find((q) => q.order_id === req.order_id);
+    const review_reason = `Cedar DENY on contactCustomer: ${reason}`;
+    if (existing) existing.review_reason = review_reason;
+    else
+      QUEUE.push({
+        ...QUEUE[0],
+        order_id: req.order_id,
+        status: "NEEDS_INFO",
+        confidence: req.confidence,
+        summary: req.summary ?? "",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        review_reason,
+        correlation_id: `mock-authz-${req.order_id}`,
+      });
+    return deny(reason);
+  }
+  return allow(["contact-allowed-window"]);
 }

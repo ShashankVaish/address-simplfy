@@ -37,6 +37,8 @@ export interface QueueItem {
   evidence: string[];
   correlation_id: string;
   reviewed_by?: string;
+  /** Set by the Cedar authorizer when a denial routed the case here. */
+  review_reason?: string;
 }
 
 export interface QueueResponse {
@@ -49,4 +51,31 @@ export interface FeedbackRequest {
   action: "approve" | "edit" | "reject";
   actor?: string;
   edits?: Partial<Record<keyof StructuredAddress, string | null>>;
+}
+
+/** `POST /v1/authorize`: the policy's inputs, nothing more. */
+export interface AuthorizeRequest {
+  order_id: string;
+  action: "contactCustomer" | "overwriteStoredAddress";
+  confidence: number;
+  /** Customer's local hour 0-23. Omitted in production; explicit for the demo. */
+  local_hour: number;
+  channel: "sms" | "whatsapp";
+  opted_out: boolean;
+  messages_sent_for_order: number;
+  principal: "clarifier" | "operator";
+  summary?: string;
+}
+
+/** The authorizer's answer, as `patasetu.authz.Decision.as_dict()` shapes it. */
+export interface AuthzDecision {
+  decision: "ALLOW" | "DENY";
+  allowed: boolean;
+  action: string;
+  principal: string;
+  resource: string;
+  matched_policies: string[];
+  reason: string;
+  errors: string[];
+  context: Record<string, unknown>;
 }

@@ -60,9 +60,29 @@ if [[ "$CODE" != "400" ]]; then
 fi
 echo "   ok"
 
-# Extended in D3, once the Cedar authorizer is deployed:
-#   -> with the clock at 23:00, contactCustomer returns DENY and the case
-#      appears in the review queue with the matched policy id.
+# --- D3: the Cedar path, end to end ------------------------------------------
+# Operator routes may be behind Cognito (ProtectOperatorRoutes=true). Pass an
+# id token in OPERATOR_TOKEN and the calls below carry it.
+AUTH=()
+if [[ -n "${OPERATOR_TOKEN:-}" ]]; then AUTH=(-H "authorization: Bearer $OPERATOR_TOKEN"); fi
+ORDER="SMOKE-$(date +%s)"
+
+echo "-> Cedar: clock at 23:00, contactCustomer must be DENY, with a reason"
+DECISION=$(curl -sf -X POST "$API/v1/authorize" "${AUTH[@]}"   -H 'content-type: application/json'   -d "{\"order_id\":\"$ORDER\",\"confidence\":0.55,\"local_hour\":23,\"summary\":\"smoke\"}")
+jq -e '.decision == "DENY" and (.reason | test("outside contact hours"))' <<< "$DECISION" > /dev/null
+echo "   ok"
+
+echo "-> Cedar: opted-out customer is DENY naming the forbid policy"
+curl -sf -X POST "$API/v1/authorize" "${AUTH[@]}"   -H 'content-type: application/json'   -d "{\"order_id\":\"$ORDER-opt\",\"confidence\":0.55,\"local_hour\":14,\"opted_out\":true}"   | jq -e '.decision == "DENY" and .matched_policies == ["contact-opted-out"]' > /dev/null
+echo "   ok"
+
+echo "-> Cedar: same order at 14:00 is ALLOW"
+curl -sf -X POST "$API/v1/authorize" "${AUTH[@]}"   -H 'content-type: application/json'   -d "{\"order_id\":\"$ORDER-day\",\"confidence\":0.55,\"local_hour\":14}"   | jq -e '.decision == "ALLOW" and .matched_policies == ["contact-allowed-window"]' > /dev/null
+echo "   ok"
+
+echo "-> the denied case is in the review queue with the Cedar reason"
+curl -sf "$API/v1/queue?limit=100" "${AUTH[@]}"   | jq -e --arg id "$ORDER" '.items[] | select(.order_id == $id) | .review_reason | test("Cedar DENY")' > /dev/null
+echo "   ok"
 
 echo
 echo "OK  smoke passed"

@@ -108,6 +108,33 @@ def _log(correlation_id: str, **fields: Any) -> None:
     logger.info(json.dumps({"correlation_id": correlation_id, **fields}))
 
 
+def _emit_needs_info(order_id: str, correlation_id: str) -> None:
+    """Best effort: a missing bus must never fail the customer's answer.
+
+    The event carries ids only. The clarifier reads the stored resolution from
+    the order's META row, so no address text crosses the bus.
+    """
+    if CONFIG.is_local:
+        return
+    try:
+        import boto3
+
+        boto3.client("events", region_name=CONFIG.region).put_events(
+            Entries=[
+                {
+                    "Source": "patasetu.resolver",
+                    "DetailType": "AddressNeedsInfo",
+                    "EventBusName": CONFIG.event_bus,
+                    "Detail": json.dumps(
+                        {"order_id": order_id, "correlation_id": correlation_id}
+                    ),
+                }
+            ]
+        )
+    except Exception:  # pragma: no cover - network
+        logger.exception("AddressNeedsInfo event not emitted")
+
+
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     correlation_id = (
         (event.get("headers") or {}).get("x-correlation-id")
@@ -220,6 +247,12 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         resolution=payload,
         correlation_id=correlation_id,
     )
+
+    # A NEEDS_INFO case is handed to the clarifier agent through EventBridge,
+    # so question generation and the Cedar contact check happen off the request
+    # path (FR-20, FR-22). The customer's answer never waits on either.
+    if result.status.value == "NEEDS_INFO":
+        _emit_needs_info(request.order_id or correlation_id, correlation_id)
 
     # One EMF line per request carries every dashboard metric: no PutMetricData
     # call, no added latency. CloudWatch extracts and publishes them (NFR-10).
