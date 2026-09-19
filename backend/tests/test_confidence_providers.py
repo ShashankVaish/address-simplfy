@@ -114,7 +114,11 @@ class TestCalibrator:
         assert c(0.75) == pytest.approx(0.6)
         assert c(-1) == 0.0 and c(2) == 1.0
 
-    def test_loads_from_file_or_falls_back(self, tmp_path: Path) -> None:
+    def test_loads_from_file_or_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The autouse fixture stubs `load`; this test is about the real one.
+        monkeypatch.undo()
         assert not conf.Calibrator.load(str(tmp_path / "missing.json")).is_fitted
         p = tmp_path / "calibration.json"
         p.write_text(json.dumps({"knots": [[0, 0], [1, 1]]}), encoding="utf-8")

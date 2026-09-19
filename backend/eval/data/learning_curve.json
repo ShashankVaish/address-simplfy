@@ -1,0 +1,49 @@
+{
+  "stack": "R2",
+  "n_addresses": 600,
+  "n_localities": 36,
+  "points": [
+    {
+      "seen": "0",
+      "n": 36,
+      "graph_hit_rate": 0.05555555555555555,
+      "geo_median_m": 1220.835318295309,
+      "geo_coverage": 0.7222222222222222
+    },
+    {
+      "seen": "1",
+      "n": 36,
+      "graph_hit_rate": 0.8055555555555556,
+      "geo_median_m": 0.0,
+      "geo_coverage": 0.8888888888888888
+    },
+    {
+      "seen": "2-3",
+      "n": 72,
+      "graph_hit_rate": 0.7638888888888888,
+      "geo_median_m": 0.0,
+      "geo_coverage": 0.8611111111111112
+    },
+    {
+      "seen": "4-7",
+      "n": 141,
+      "graph_hit_rate": 0.8085106382978723,
+      "geo_median_m": 0.0,
+      "geo_coverage": 0.8865248226950354
+    },
+    {
+      "seen": "8-15",
+      "n": 280,
+      "graph_hit_rate": 0.7642857142857142,
+      "geo_median_m": 0.0,
+      "geo_coverage": 0.8571428571428571
+    },
+    {
+      "seen": "16-999",
+      "n": 35,
+      "graph_hit_rate": 0.7428571428571429,
+      "geo_median_m": 0.0,
+      "geo_coverage": 0.8857142857142857
+    }
+  ]
+}

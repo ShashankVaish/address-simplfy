@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "data"
 DST = ROOT / "layers" / "common" / "python" / "patasetu" / "data"
 FILES = ("pincodes.csv", "localities.csv.gz", "abbreviations.json")
+# Shipped when it exists; the runtime falls back to an identity calibrator.
+OPTIONAL = ("calibration.json",)
 
 
 def main() -> int:
@@ -34,7 +36,10 @@ def main() -> int:
         )
         return 1
     DST.mkdir(parents=True, exist_ok=True)
-    for name in FILES:
+    for name in FILES + OPTIONAL:
+        if name in OPTIONAL and not (SRC / name).exists():
+            print(f"  {name:<20} (absent; runtime stays uncalibrated)")
+            continue
         shutil.copy2(SRC / name, DST / name)
         print(f"  {name:<20} -> {DST.relative_to(ROOT)}")
     print("layer data ready")

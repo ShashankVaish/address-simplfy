@@ -212,6 +212,16 @@ python -m eval.run_ablation --split dev --stacks B C D E     # needs Bedrock or 
 python -m eval.run_ablation --split test --stacks A B C D E  # ONCE, at the end
 ```
 
+```bash
+python -m eval.reliability      # isotonic calibration -> data/calibration.json + reliability.svg
+python -m eval.learning_curve   # empty graph, fed one address at a time -> learning_curve.svg
+```
+
+Results live in [`docs/results/`](./docs/results/ablation.md): the ablation
+table, the reliability diagram (raw ECE 0.217 → 0.057 cross-validated) and
+the learning curve (one confirmed delivery per locality takes graph geocoding
+from 6% to 81%).
+
 `R1`/`R2` are diagnostic rows — retrieval with no LLM — that isolate what S2
 contributes to geocoding. Configurations that cannot run report **NOT RUN**
 with the reason; the table is never filled with a weaker configuration's
