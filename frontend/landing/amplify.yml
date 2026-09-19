@@ -1,0 +1,15 @@
+# Amplify Hosting build spec for the landing page. It is one static file, so
+# there is nothing to build: publish the folder as-is. Connect this repo as a
+# second Amplify app with the monorepo root set to frontend/landing.
+version: 1
+applications:
+  - appRoot: frontend/landing
+    frontend:
+      phases:
+        build:
+          commands: []
+      artifacts:
+        baseDirectory: .
+        files:
+          - index.html
+          - README.md
