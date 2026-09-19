@@ -369,8 +369,10 @@ class OpenSearchEngine:
                     "query": {"term": {"landmark_id": landmark_id}},
                 },
             )["hits"]["hits"]
-        except Exception:
-            return None
+        except Exception as exc:
+            # "Not found" and "not allowed" must not look the same. A 403 here
+            # once made the learner report every landmark as absent.
+            raise ProviderUnavailable(f"opensearch get failed: {exc}") from exc
         if not hits:
             return None
         return self._to_record(hits[0].get("_source") or {})
