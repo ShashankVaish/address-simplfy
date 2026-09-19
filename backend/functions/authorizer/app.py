@@ -103,8 +103,13 @@ def _record(order_id: str, decision: authz.Decision, *, note: str | None) -> Non
                     else ""
                 )
             ),
+            # Asking twice must not say it twice: keep one line per reason.
             "evidence": [
-                *(meta.get("evidence") or []),
+                *[
+                    e
+                    for e in (meta.get("evidence") or [])
+                    if e != f"outreach denied by policy: {decision.reason}"
+                ],
                 f"outreach denied by policy: {decision.reason}",
             ],
         }
