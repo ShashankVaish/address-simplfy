@@ -12,10 +12,15 @@ import { ApiError, isMock, resolve } from "../api/client";
 import type { Resolution } from "../api/types";
 import { Card, ConfidenceBar, DigipinBadge, EvidenceList, LandmarkList, MapPin, StatusPill, StructuredPanel } from "../components/ui";
 
+// The first two are places the deployed landmark graph knows (seeded from the
+// pincode directory), so they resolve from the graph. The Ramesh Nagar one is
+// the README's running example: its landmarks are NOT in the graph, which
+// shows the honest fallback path -- geocoder, lower confidence, one question.
 const EXAMPLES = [
-  "h no 14 behind shiv mandir near gupta general store opp water tank ramesh nagar delhi 110015 call before coming",
+  "h no 14 near okhla industrial estate opp greater kailash kalkaji new delhi 110019 call before coming 9876543210",
+  "flat 12 prem nagar near mangolpuri n block opp rohini sector 23 delhi 110086",
   "शिव मंदिर के पीछे, रमेश नगर, दिल्ली 110015",
-  "Flat 4B, Sunrise Apts, opp SBI, Sec 22, Noida, UP 201301",
+  "h no 14 behind shiv mandir near gupta general store opp water tank ramesh nagar delhi 110015 call before coming",
   "Baulabanadh Post Office, near Nairi, Bhubaneswar - 752034",
 ];
 

@@ -126,6 +126,11 @@ are at [github.com/ShashankVaish/address-simplfy](https://github.com/ShashankVai
 
 ---
 
-*To fill in on Sunday: cloud ablation rows B–E with real Bedrock; the
-calibrated threshold on stack E; p95 latency from the dashboard; the video
-link.*
+*Cloud numbers, added Saturday evening from the deployed stack: LLM alone
+(B) geocodes at 969 m median with 30% of addresses unplaced; with landmark
+retrieval (C–E), 0 m and 97% placed. The model's field F1 (0.79) is below the
+regex floor (0.83) — locality recall is where it loses — so the deterministic
+parse stays as the floor. Calibrated ECE on the full system: 0.24 raw → 0.03
+cross-validated. p95 latency 2.8 s against a 1.2 s target, the cost of Claude
+escalations. No confidence band reaches 95% precision yet; we report 0.71 at
+the 0.80 threshold rather than claim the target. Still to add: the video.*

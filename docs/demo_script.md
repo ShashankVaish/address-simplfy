@@ -8,7 +8,7 @@ one take with no editing, so that Sunday is re-recording, not first-recording.
 - [ ] `sam deploy` with `ServingStack=E EnableOpenSearch=true`; `create_index --load --warm`; `bash scripts/smoke.sh` all `ok`
 - [ ] Console running against the live API (`frontend/console/.env.local` has `VITE_API_URL`)
 - [ ] Warm the Lambdas: resolve the two demo addresses once each, off camera
-- [ ] Review queue is **empty** (approve or reject leftovers) so the DENY case is the only row
+- [ ] Review queue is **empty**: `PROVIDER=aws AWS_REGION=ap-south-1 TABLE_NAME=patasetu-dev python -m scripts.clear_queue` from `backend/`, so the DENY case is the only row
 - [ ] Browser tabs, left to right: Console · CloudWatch dashboard · `docs/results/ablation.md` on GitHub · `ARCHITECTURE.md` diagram
 - [ ] Browser zoom 125%, screen recorder at 1080p, mic checked
 - [ ] Clock in the Guardrails screen preset to **23:00**
@@ -28,9 +28,9 @@ Say the words in the "Say" column; they are short on purpose. Do not read the sc
 
 | Show | Say |
 |---|---|
-| Console → Playground. Paste: `h no 14 behind shiv mandir near gupta general store ramesh nagar delhi 110015 call before coming 9876543210` | "PataSetu takes that text…" |
+| Console → Playground. Click the **first example chip** (`h no 14 near okhla industrial estate opp greater kailash kalkaji new delhi 110019 call before coming 9876543210`) | "PataSetu takes that text…" |
 | Click Resolve. Let the **stage reveal** run: fields appear, landmarks match, pin drops, DIGIPIN renders | "…normalises it, parses what's deterministic, retrieves landmarks it has seen before, and only then asks a model to structure it." |
-| Point at the DIGIPIN badge | "The output is a DIGIPIN — India Post's official 10-character geocode — plus a calibrated confidence." |
+| Point at the two green **matched** landmark chips, then the DIGIPIN badge | "Both landmarks are in the graph — it has seen them before. The output is a DIGIPIN, India Post's official 10-character geocode, plus a calibrated confidence." |
 | Point at the evidence line *stripped 1 phone number* | "The phone number was stripped before any model or log ever saw it." |
 
 ## 0:45–1:15 · The graph learns
@@ -45,7 +45,7 @@ Say the words in the "Say" column; they are short on purpose. Do not read the sc
 
 | Show | Say |
 |---|---|
-| Playground. Paste: `शिव मंदिर के पीछे, रमेश नगर, दिल्ली 110015` | "When it genuinely doesn't know — here there's no house number — it doesn't guess." |
+| Playground. Click the **Devanagari chip** (`शिव मंदिर के पीछे, रमेश नगर, दिल्ली 110015`) | "When it genuinely doesn't know — here there's no house number, and this temple is not in the graph yet — it doesn't guess." |
 | Result: NEEDS_INFO, the clarification card with a **Hindi** question | "It asks one question, targeting the field that unlocks the most, in the script the customer wrote in. Devanagari in, Hindi out." |
 | (If the deployed clarifier has run: the review-queue row shows the agent-generated question with `source: agent`) | "The question comes from a Strands agent on Nova Lite, with a template fallback that's labelled as such — we never let a template take credit for the agent." |
 
@@ -64,8 +64,8 @@ Say the words in the "Say" column; they are short on purpose. Do not read the sc
 | Show | Say |
 |---|---|
 | `docs/results/ablation.md` table | "We didn't just build it; we ablated it. Same gold set, cumulative configurations." |
-| Point at A → R1 → R2 geo median column | "Regex and gazetteer alone: median error nine hundred and sixty-nine metres. Add landmark retrieval — zero. That's the graph." |
-| Reliability diagram | "Confidence is isotonic-calibrated. Raw expected calibration error 0.22; cross-validated after fitting, 0.06. The number on screen means what it says." |
+| Point at the B → C geo median column | "Model alone: median error nine hundred and sixty-nine metres, and a third of addresses with no coordinate at all. Add landmark retrieval — zero metres, ninety-seven percent coverage. That's the graph. And note the model does *not* beat our regex on fields — we print that, not hide it." |
+| Reliability diagram | "Confidence is isotonic-calibrated on the deployed system. Raw expected calibration error 0.24; cross-validated after fitting, 0.03. The number on screen means what it says." |
 | `ARCHITECTURE.md` diagram | "Lambda on Graviton, DynamoDB, OpenSearch Serverless for hybrid retrieval, Bedrock — Nova Lite first, Claude only on escalation — Amazon Location, EventBridge to the learner, Cedar for policy, Cognito on the operator routes." |
 
 ## 2:35–3:00 · Dashboard and what we learned
