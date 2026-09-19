@@ -34,7 +34,7 @@ def main() -> int:
         "--warm", action="store_true", help="load landmarks_warm.jsonl instead"
     )
     ap.add_argument("--data-dir", type=Path, default=Path("eval/data"))
-    ap.add_argument("--batch", type=int, default=200)
+    ap.add_argument("--batch", type=int, default=100)
     args = ap.parse_args()
 
     cfg = load_config()
