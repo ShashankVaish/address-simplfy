@@ -91,3 +91,53 @@ Say the words in the "Say" column; they are short on purpose. Do not read the sc
 
 - [ ] Watch it back in full. Write every flaw in `docs/learnings.md` under "video notes". Do not fix any tonight.
 - [ ] `sam deploy --parameter-overrides EnableOpenSearch=false`
+
+---
+
+# Submission cut — 3:00, mapped to the form's four points
+
+The form asks for: about the project · tech stack and architecture · how AWS
+is used · learning and growth. Same beats as above, re-ordered and timed to
+those headings. Upload **unlisted**, title "PataSetu — address resolution for
+India (First Commit 2026)".
+
+Before recording: stack E on, `smoke.sh` all ok, queue cleared, console open
+on the first chip, Guardrails clock at 23:00, tabs ready.
+
+## 0:00–0:45 · About the project
+
+| Show | Say |
+|---|---|
+| Landing page hero, then the messy address in the terminal | "PataSetu turns the way Indians actually write addresses — 'behind Shiv Mandir, near Gupta store' — into something a rider can deliver to without a phone call." |
+| Console → Playground → first chip → Resolve; let the rail and reveal run | "One request. It parses what's certain, looks up landmarks it already knows, fills the gaps with a model, places the doorstep and returns India Post's DIGIPIN — with a calibrated confidence and the evidence for every step." |
+| Point at the gauge and the DIGIPIN plate | "0.88, above the line — resolved, nobody is called. If it were below, it would ask the customer exactly one question, in their own script." |
+
+## 0:45–1:30 · Tech stack and architecture
+
+| Show | Say |
+|---|---|
+| Landing → *Under the hood* rail (S0→S7) | "Eight stages. Deterministic first, model last. Retrieval places the address; the model only structures what retrieval found." |
+| Click S2, then S3 | "S2 is hybrid retrieval — BM25, vectors and geo-distance in one OpenSearch query, fused with reciprocal rank fusion. S3 is the model cascade: Nova Lite first, Claude only on escalation." |
+| Landing → learning-curve chart | "The landmark graph learns from confirmed deliveries. We measured it: after **one** delivery in a locality, graph geocoding goes from six percent to eighty-one." |
+| Frontend: console tabs | "React and TypeScript on Amplify for the console; Python 3.12 on Lambda for the pipeline; the wire contract is a single frozen file both sides import." |
+
+## 1:30–2:20 · How we used AWS
+
+| Show | Say |
+|---|---|
+| Landing → *AWS stack* table | "Every service here is one the deployed stack calls today. Bedrock for Nova Lite, Claude and Titan embeddings. OpenSearch Serverless for the landmark graph. Lambda on Graviton behind an HTTP API, DynamoDB single-table for cache, orders and the review queue." |
+| Console → Guardrails → click → **DENY** → point at the lit clause | "EventBridge hands NEEDS_INFO cases to a Strands agent that writes the question — but not before Cedar decides whether we may contact this customer. It's 23:00: denied, policy named, clause lit, and the case lands in a human queue. A denial is never a silent drop." |
+| Review queue → the DEMO-23 row → Approve | "Approving a case emits DeliveryConfirmed; a learner Lambda updates the graph through EventBridge. We watched it live: seventeen observations became eighteen, the landmark moved three metres." |
+| CloudWatch dashboard tab | "One metrics line per request in embedded metric format — the dashboard costs nothing. The whole stack ran the event on a hundred and twenty dollars of credit; OpenSearch has a nightly off switch." |
+
+## 2:20–2:55 · Learning and growth
+
+| Show | Say |
+|---|---|
+| `docs/results/ablation.md` targets strip (1 of 7 met) | "We ablated it honestly. Retrieval takes median geocode error from nine hundred metres to zero on both splits — that target is met with room to spare. Six others aren't, and the page says why." |
+| `docs/learnings.md`, scroll | "Three things we'd tell anyone starting tomorrow. The official DIGIPIN format changed and every blog was stale — read the implementation, not the posts. The model does *not* beat our regex on fields, so the deterministic parse stays the floor. And two bugs only showed up when we fired a real event at the deployed stack — a missing Bedrock stream permission, and a learner that couldn't read the graph. Unit tests said green both times." |
+| README top | "PataSetu. The address stops being a phone call." |
+
+## Timing guard
+
+If the take runs long, cut in this order: the Approve step (1:55–2:05), the frontend line (1:20–1:30), the dashboard line. Never cut the DENY beat or the learning curve.
