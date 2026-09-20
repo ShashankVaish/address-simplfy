@@ -160,7 +160,7 @@ export default function Playground({ theme }: { theme: "light" | "dark" }) {
                       type="button"
                       onClick={() => setRaw(ex.text)}
                       aria-pressed={active}
-                      className={`grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border px-2.5 py-1.5 text-left transition duration-fast ease-out ${
+                      className={`grid min-h-[40px] grid-cols-1 items-center gap-0.5 rounded-md border px-2.5 py-1.5 text-left transition duration-fast ease-out sm:grid-cols-[1fr_auto] sm:gap-3 ${
                         active ? "border-saffron bg-saffron/5" : "border-hairline bg-raised hover:border-hairline-2 hover:-translate-y-px"
                       }`}
                       title={ex.text}

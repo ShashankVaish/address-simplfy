@@ -15,6 +15,8 @@ import ReviewQueue from "./pages/ReviewQueue";
 
 const link = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-1.5 text-sm font-medium transition duration-fast ease-out ${isActive ? "bg-ink text-ground" : "text-ink-2 hover:bg-raised hover:text-ink"}`;
+const tab = ({ isActive }: { isActive: boolean }) =>
+  `flex min-h-[56px] flex-col items-center justify-center gap-1 text-2xs font-semibold transition duration-fast ${isActive ? "text-saffron" : "text-muted"}`;
 
 export default function App() {
   const { theme, resolved, cycle } = useTheme();
@@ -37,13 +39,13 @@ export default function App() {
         Skip to content
       </a>
       <header className="sticky top-0 z-sticky border-b border-hairline bg-ground/85 backdrop-blur">
-        <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2.5 sm:gap-6">
+        <div className="mx-auto flex max-w-[1400px] items-center gap-3 px-4 py-2 sm:gap-6 sm:py-2.5">
           <a href="https://main.d16dqxnda3ut4f.amplifyapp.com/" className="flex items-center gap-2.5 no-underline" title="PataSetu — about the project">
-            <Logo />
+            <Logo className="h-9" />
             <span className="text-md font-extrabold tracking-tight text-ink">PataSetu</span>
             <span className="hidden text-xs text-muted sm:inline">address resolution for India</span>
           </a>
-          <nav className="flex gap-1" aria-label="Screens">
+          <nav className="hidden gap-1 sm:flex" aria-label="Screens">
             <NavLink to="/" end className={link}>
               Playground
             </NavLink>
@@ -68,13 +70,28 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main id="main" className="mx-auto max-w-[1400px] px-4 py-5 sm:py-6">
+      <main id="main" className="mx-auto max-w-[1400px] px-4 pb-24 pt-4 sm:py-6">
         <Routes>
           <Route path="/" element={<Playground theme={resolved} />} />
           <Route path="/queue" element={<ReviewQueue />} />
           <Route path="/guardrails" element={<Guardrails />} />
         </Routes>
       </main>
+      {/* Phones get a thumb-reachable tab bar; the top nav is hidden there. */}
+      <nav className="fixed inset-x-0 bottom-0 z-sticky grid grid-cols-3 border-t border-hairline bg-surface/95 backdrop-blur sm:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }} aria-label="Screens">
+        <NavLink to="/" end className={tab}>
+          <Icon name="spark" className="h-5 w-5" />
+          Playground
+        </NavLink>
+        <NavLink to="/queue" className={tab}>
+          <Icon name="info" className="h-5 w-5" />
+          Queue
+        </NavLink>
+        <NavLink to="/guardrails" className={tab}>
+          <Icon name="shield" className="h-5 w-5" />
+          Guardrails
+        </NavLink>
+      </nav>
     </div>
   );
 }
@@ -99,7 +116,8 @@ function EnvChip({ env, error }: { env: HealthResponse | null; error: boolean })
   return (
     <span className="pill border-leaf/40 bg-leaf/10 text-leaf" title={`provider ${env.provider} · calibration ${env.calibration} · init ${env.init_ms} ms`}>
       <span className="h-1.5 w-1.5 rounded-full bg-leaf" aria-hidden="true" />
-      live · stack {env.serving_stack}
+      <span className="hidden sm:inline">live · stack {env.serving_stack}</span>
+      <span className="sm:hidden">{env.serving_stack}</span>
     </span>
   );
 }

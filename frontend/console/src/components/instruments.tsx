@@ -97,10 +97,10 @@ export function ConfidenceGauge({ value, calibrated, threshold = 0.8 }: { value:
 export function DigipinPlate({ digipin, size = "md" }: { digipin: string; size?: "md" | "lg" }) {
   const chars = digipin.replace(/[\s-]/g, "").toUpperCase().split("");
   const groups = [chars.slice(0, 3), chars.slice(3, 6), chars.slice(6, 10)];
-  const cell = size === "lg" ? "h-11 w-9 text-xl" : "h-9 w-7 text-base";
+  const cell = size === "lg" ? "h-11 w-9 text-xl" : "h-8 w-6 text-sm sm:h-9 sm:w-7 sm:text-base";
   return (
     <div className="inline-flex flex-col gap-1.5">
-      <div className="inline-flex items-center gap-2 rounded-md border border-hairline-2 bg-sunken p-2">
+      <div className="inline-flex items-center gap-1.5 rounded-md border border-hairline-2 bg-sunken p-1.5 sm:gap-2 sm:p-2">
         {groups.map((g, gi) => (
           <div key={gi} className="flex gap-1">
             {g.map((c, i) => (
@@ -111,7 +111,7 @@ export function DigipinPlate({ digipin, size = "md" }: { digipin: string; size?:
           </div>
         ))}
       </div>
-      <div className="font-mono text-2xs text-muted">DIGIPIN · {formatDigipin(digipin)} · ~4 m cell · computed locally · ₹0</div>
+      <div className="font-mono text-2xs text-muted">DIGIPIN · {formatDigipin(digipin)} · ~4 m cell<span className="hidden sm:inline"> · computed locally · ₹0</span></div>
     </div>
   );
 }

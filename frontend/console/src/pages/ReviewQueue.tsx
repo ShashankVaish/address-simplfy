@@ -154,7 +154,7 @@ function Row({
   return (
     <div role="listitem" className={`relative transition-colors duration-fast ${open ? "bg-raised/60" : ""}`}>
       <span className={`absolute inset-y-0 left-0 w-1 ${fromCedar ? "bg-deny" : item.status === "AMBIGUOUS" ? "bg-hairline-2" : "bg-saffron"}`} aria-hidden="true" />
-      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="grid w-full grid-cols-[1fr_auto] items-start gap-4 py-3 pl-5 pr-4 text-left">
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="grid w-full grid-cols-1 items-start gap-2 py-3 pl-5 pr-4 text-left sm:grid-cols-[1fr_auto] sm:gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill status={item.status} />
@@ -172,10 +172,10 @@ function Row({
             {reason}
           </div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="flex shrink-0 items-center justify-between gap-3 sm:block sm:text-right">
           <div className="font-mono text-base font-semibold tnum">{item.confidence?.toFixed(2) ?? "—"}</div>
           {item.clarification && (
-            <div className="relative mt-1 max-w-[18rem] rounded-md rounded-tr-none border border-saffron/40 bg-saffron/5 px-2 py-1 text-left text-2xs text-ink" title={item.clarification.question}>
+            <div className="relative min-w-0 rounded-md rounded-tr-none border border-saffron/40 bg-saffron/5 px-2 py-1 text-left text-2xs text-ink sm:mt-1 sm:max-w-[18rem]" title={item.clarification.question}>
               <span className="eyebrow mr-1">{item.clarification.language}</span>
               <span className="truncate">"{item.clarification.question}"</span>
             </div>
@@ -204,15 +204,15 @@ function Row({
               ))}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => void onAct(item, "approve", dirty ? draft : undefined)} disabled={acting} className="btn !border-leaf !bg-leaf">
+              <button type="button" onClick={() => void onAct(item, "approve", dirty ? draft : undefined)} disabled={acting} className="btn !border-leaf !bg-leaf w-full sm:w-auto">
                 <Icon name="check" />
                 {acting ? "Saving…" : dirty ? "Save & approve" : "Approve"}
               </button>
-              <button type="button" onClick={() => void onAct(item, "reject")} disabled={acting} className="btn-ghost">
+              <button type="button" onClick={() => void onAct(item, "reject")} disabled={acting} className="btn-ghost w-full sm:w-auto">
                 <Icon name="x" />
                 Reject
               </button>
-              <span className="ml-auto text-2xs text-muted">Approve emits DeliveryConfirmed → the learner</span>
+              <span className="w-full text-2xs text-muted sm:ml-auto sm:w-auto">Approve emits DeliveryConfirmed → the learner</span>
             </div>
           </div>
           <div>

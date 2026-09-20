@@ -8,5 +8,6 @@ Everything on the page is taken from the docs and the measured results in
 demo mirrors `policies/contact.cedar` for illustration — the deployed
 authorizer runs the real engine.
 
-Amplify Hosting: add an app pointed at this repo with the build root set to
-`frontend/landing` and no build command.
+Amplify Hosting: connect this repo as an app with the monorepo root set to
+`frontend/landing`; `amplify.yml` here publishes the folder with no build
+step, so every push to the branch redeploys the page.
