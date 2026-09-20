@@ -109,7 +109,7 @@ export default function Guardrails() {
               void ask();
             }}
           >
-            <div className="grid gap-4 sm:grid-cols-[auto_1fr] sm:items-start">
+            <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-start">
               <div>
                 <div className="text-xs font-medium text-ink-2">Customer's local time</div>
                 <div className="mt-1">
@@ -197,7 +197,7 @@ export default function Guardrails() {
               </div>
               <ul className="divide-y divide-hairline rounded-md border border-hairline">
                 {rules.map((r) => (
-                  <li key={r.label} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 px-3 py-1.5 text-sm">
+                  <li key={r.label} className="grid grid-cols-[20px_1fr] items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm sm:grid-cols-[20px_1fr_auto]">
                     <span className={`grid h-4 w-4 place-items-center rounded-full ${r.ok ? "bg-leaf/15 text-leaf" : "bg-deny/15 text-deny"}`} aria-hidden="true">
                       <Icon name={r.ok ? "check" : "x"} className="h-3 w-3" />
                     </span>
@@ -205,7 +205,7 @@ export default function Guardrails() {
                       {r.label}
                       <span className="sr-only">{r.ok ? " passes" : " fails"}</span>
                     </span>
-                    <span className="font-mono text-2xs text-muted">{r.detail}</span>
+                    <span className="col-start-2 font-mono text-2xs text-muted sm:col-start-auto">{r.detail}</span>
                   </li>
                 ))}
               </ul>
@@ -265,7 +265,7 @@ function DecisionPanel({ decision, busy, stale }: { decision: AuthzDecision | nu
   return (
     <section className={`panel overflow-hidden transition-[border-color,box-shadow] duration-slow ease-out ${stale ? "" : allow ? "verdict-allow" : "verdict-deny"}`}>
       <div className={`grid gap-4 p-5 sm:grid-cols-[auto_1fr] ${stale ? "opacity-70" : ""}`}>
-        <div className={`stamp grid h-24 w-24 place-items-center rounded-lg border-2 font-mono text-lg font-bold tracking-tight ${stale ? "border-hairline-2 text-muted" : allow ? "border-leaf bg-leaf/10 text-leaf" : "border-deny bg-deny/10 text-deny"}`} key={decision.decision + String(stale)}>
+        <div className={`stamp grid h-20 w-20 place-items-center rounded-lg border-2 font-mono text-base font-bold tracking-tight sm:h-24 sm:w-24 sm:text-lg ${stale ? "border-hairline-2 text-muted" : allow ? "border-leaf bg-leaf/10 text-leaf" : "border-deny bg-deny/10 text-deny"}`} key={decision.decision + String(stale)}>
           {decision.decision}
         </div>
         <div className="min-w-0">

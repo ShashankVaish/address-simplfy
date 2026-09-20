@@ -145,6 +145,11 @@
     @apply w-full rounded-md border border-hairline-2 bg-surface px-2.5 py-1.5 text-sm text-ink transition duration-fast ease-out;
   }
   .field:focus { @apply border-saffron outline-none ring-2 ring-saffron/25; }
+  /* iOS zooms into inputs under 16px; keep them at 16px on phones. */
+  @media (max-width: 640px) {
+    .field { font-size: 16px; }
+    .btn, .btn-ghost { min-height: 42px; }
+  }
 
   /* Skeleton bones: the shape of what is coming, never a spinner. */
   .bone {
