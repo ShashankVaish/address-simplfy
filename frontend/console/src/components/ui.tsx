@@ -56,7 +56,7 @@ export function Icon({ name, className = "h-4 w-4" }: { name: IconName; classNam
 
 /** The PataSetu mark: a pin over a bridge between two skylines. PNG with a transparent ground. */
 export function Logo({ className = "h-8" }: { className?: string }) {
-  return <img src="/logo-256.png" alt="" className={`${className} w-auto select-none`} draggable={false} />;
+  return <img src="/logo-256.png" alt="" className={`${className} w-auto max-w-full shrink-0 self-start select-none`} draggable={false} />;
 }
 
 // --- layout -----------------------------------------------------------------------
@@ -75,7 +75,7 @@ export function Panel({
   padded?: boolean;
 }) {
   return (
-    <section className={`panel ${className}`}>
+    <section className={`panel min-w-0 ${className}`}>
       {(title || aside) && (
         <header className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-2.5">
           {title && <h2 className="panel-title">{title}</h2>}

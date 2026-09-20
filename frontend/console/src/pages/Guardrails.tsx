@@ -99,7 +99,7 @@ export default function Guardrails() {
         {isMock && <span className="text-xs text-muted">mock — same rules, evaluated locally</span>}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         {/* ------------------------------------------------ the situation */}
         <Panel title="The situation" aside="the policy's inputs, nothing more">
           <form
@@ -109,7 +109,7 @@ export default function Guardrails() {
               void ask();
             }}
           >
-            <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-start">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
               <div>
                 <div className="text-xs font-medium text-ink-2">Customer's local time</div>
                 <div className="mt-1">
@@ -223,7 +223,7 @@ export default function Guardrails() {
         </Panel>
 
         {/* ------------------------------------------------ decision + policy */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div aria-live="polite" aria-atomic="true">
             <DecisionPanel decision={decision} busy={busy} stale={stale} />
           </div>
@@ -264,7 +264,7 @@ function DecisionPanel({ decision, busy, stale }: { decision: AuthzDecision | nu
   const allow = decision.allowed;
   return (
     <section className={`panel overflow-hidden transition-[border-color,box-shadow] duration-slow ease-out ${stale ? "" : allow ? "verdict-allow" : "verdict-deny"}`}>
-      <div className={`grid gap-4 p-5 sm:grid-cols-[auto_1fr] ${stale ? "opacity-70" : ""}`}>
+      <div className={`grid grid-cols-1 gap-4 p-5 sm:grid-cols-[auto_minmax(0,1fr)] ${stale ? "opacity-70" : ""}`}>
         <div className={`stamp grid h-20 w-20 place-items-center rounded-lg border-2 font-mono text-base font-bold tracking-tight sm:h-24 sm:w-24 sm:text-lg ${stale ? "border-hairline-2 text-muted" : allow ? "border-leaf bg-leaf/10 text-leaf" : "border-deny bg-deny/10 text-deny"}`} key={decision.decision + String(stale)}>
           {decision.decision}
         </div>
