@@ -112,9 +112,9 @@ export default function Playground({ theme }: { theme: "light" | "dark" }) {
       {/* ------------------------------------------------------------ rail */}
       <PipelineRail busy={busy} timings={result?.timings_ms ?? null} litThrough={RAIL_THROUGH[stage]} cached={result?.cached ?? false} />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         {/* ---------------------------------------------------------- input + verdict */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Panel title="Address" aside={pv.devanagari ? "Devanagari · the question will be in Hindi" : "Hindi, English or both"}>
             <label htmlFor="raw" className="sr-only">
               Address text
@@ -245,8 +245,8 @@ export default function Playground({ theme }: { theme: "light" | "dark" }) {
         </div>
 
         {/* ---------------------------------------------------------- record + map */}
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+        <div className="min-w-0 space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Panel title="Structured" aside={result ? "stated · pincode · inferred" : "S1 + S3"}>
               {busy && !result ? (
                 <RecordSkeleton rows={8} />

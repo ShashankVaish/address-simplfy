@@ -111,7 +111,7 @@ export function CedarViewer({ source = CONTACT_CEDAR, clause, tone }: { source?:
   const hl = tone === "allow" ? "bg-leaf/15" : tone === "deny" ? "bg-deny/15" : "";
   const bar = tone === "allow" ? "bg-leaf" : tone === "deny" ? "bg-deny" : "";
   return (
-    <div className="overflow-x-auto rounded-md bg-sunken font-mono text-[11.5px] leading-[1.6] text-code-ink">
+    <div className="max-w-full overflow-x-auto rounded-md bg-sunken font-mono text-[11.5px] leading-[1.6] text-code-ink">
       <pre className="m-0 min-w-max p-3">
         {lines.map((line, i) => {
           const n = i + 1;

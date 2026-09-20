@@ -75,7 +75,7 @@ export function Panel({
   padded?: boolean;
 }) {
   return (
-    <section className={`panel ${className}`}>
+    <section className={`panel min-w-0 ${className}`}>
       {(title || aside) && (
         <header className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-2.5">
           {title && <h2 className="panel-title">{title}</h2>}

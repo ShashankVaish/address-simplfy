@@ -184,7 +184,7 @@ function Row({
       </button>
 
       {open && (
-        <div id={panelId} className="grid gap-5 border-t border-hairline py-4 pl-5 pr-4 md:grid-cols-2">
+        <div id={panelId} className="grid grid-cols-1 gap-5 border-t border-hairline py-4 pl-5 pr-4 md:grid-cols-2">
           <div>
             <div className="panel-title mb-2">Fields — edit if wrong</div>
             <div className="divide-y divide-hairline rounded-md border border-hairline bg-surface">
