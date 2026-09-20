@@ -15,8 +15,8 @@ export function SiteFooter() {
   return (
     <footer className="mt-10 border-t border-hairline text-sm text-muted">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-7 px-4 py-8 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
-        <div className="flex min-w-0 flex-col gap-3 sm:col-span-2 lg:col-span-1">
-          <Logo className="h-8" />
+        <div className="flex min-w-0 flex-col items-start gap-3 sm:col-span-2 lg:col-span-1">
+          <Logo className="h-8 self-start" />
           <p className="max-w-[36ch] text-ink-2">
             <b className="text-ink">PataSetu</b> — address resolution for India. Messy address in; structured fields, a coordinate, a DIGIPIN and a calibrated confidence out. Every outbound message authorised by Cedar first.
           </p>
