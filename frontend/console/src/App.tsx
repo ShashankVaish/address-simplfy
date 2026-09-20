@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { health, isMock } from "./api/client";
 import type { HealthResponse } from "./api/types";
+import { SiteFooter } from "./components/SiteFooter";
 import { Icon, Logo } from "./components/ui";
 import { useTheme } from "./hooks/useTheme";
 import Guardrails from "./pages/Guardrails";
@@ -70,13 +71,16 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main id="main" className="mx-auto max-w-[1400px] px-4 pb-24 pt-4 sm:py-6">
+      <main id="main" className="mx-auto max-w-[1400px] px-4 pt-4 sm:py-6">
         <Routes>
           <Route path="/" element={<Playground theme={resolved} />} />
           <Route path="/queue" element={<ReviewQueue />} />
           <Route path="/guardrails" element={<Guardrails />} />
         </Routes>
       </main>
+      <div className="pb-20 sm:pb-0">
+        <SiteFooter />
+      </div>
       {/* Phones get a thumb-reachable tab bar; the top nav is hidden there. */}
       <nav className="fixed inset-x-0 bottom-0 z-sticky grid grid-cols-3 border-t border-hairline bg-surface/95 backdrop-blur sm:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }} aria-label="Screens">
         <NavLink to="/" end className={tab}>
